@@ -7,4 +7,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(cmake/CompileOptions.cmake)
 
-add_executable(main src/main.cpp)
+add_executable(main
+    src/main.cpp
+    src/core/ImplantId.cpp
+    src/crypto/AesGcm.cpp
+    src/http/WinHttpClient.cpp
+    src/http/RedirectorResolver.cpp
+    src/beacon/Beacon.cpp
+)
+
+target_include_directories(main PUBLIC external)
+target_link_libraries(main bcrypt winhttp advapi32 ole32)
