@@ -8,6 +8,8 @@ if(MSVC)
     add_compile_options(/EHsc)
     # Strict conformance
     add_compile_options(/permissive-)
+    # Prevent min/max macros
+    add_compile_definitions(NOMINMAX)
 else()
     # GCC/Clang
     add_compile_options(-Wall -Wextra -Wpedantic -Werror)

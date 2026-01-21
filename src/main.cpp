@@ -1,6 +1,9 @@
-#include <iostream>
+#include "beacon/Beacon.h"
+#include <objbase.h>
 
 int main() {
-    std::cout << "Hello, world!" << std::endl;
+    CoInitialize(NULL);
+    beacon::Beacon beacon;
+    beacon.run();
     return 0;
 }
