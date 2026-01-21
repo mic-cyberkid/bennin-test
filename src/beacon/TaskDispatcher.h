@@ -1,7 +1,6 @@
-#pragma once
-
 #include "Task.h"
 #include "../external/concurrentqueue/concurrentqueue.h"
+#include "../network/SocksProxy.h"
 
 namespace beacon {
 
@@ -14,6 +13,7 @@ public:
 
 private:
     moodycamel::ConcurrentQueue<Result>& pendingResults_;
+    network::SocksProxy m_socksProxy;
 };
 
 } // namespace beacon

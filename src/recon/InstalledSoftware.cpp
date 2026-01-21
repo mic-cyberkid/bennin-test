@@ -107,8 +107,8 @@ namespace recon {
         std::sort(apps.begin(), apps.end(), [](const InstalledApp& a, const InstalledApp& b) {
             std::string nameA = a.displayName;
             std::string nameB = b.displayName;
-            std::transform(nameA.begin(), nameA.end(), nameA.begin(), ::tolower);
-            std::transform(nameB.begin(), nameB.end(), nameB.begin(), ::tolower);
+            std::transform(nameA.begin(), nameA.end(), nameA.begin(), [](unsigned char c){ return (char)::tolower(c); });
+            std::transform(nameB.begin(), nameB.end(), nameB.begin(), [](unsigned char c){ return (char)::tolower(c); });
             return nameA < nameB;
         });
 

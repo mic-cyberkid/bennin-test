@@ -2,7 +2,7 @@
 #include "../crypto/Base64.h"
 #include "../crypto/AesGcm.h"
 #include "../external/nlohmann/json.hpp"
-#include "../external/sqlite/sqlite3.h"
+#include "../external/sqlite3/sqlite3.h"
 
 #include <windows.h>
 #include <shlobj.h>
