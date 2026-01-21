@@ -51,10 +51,9 @@ target_link_libraries(implant PRIVATE
     rpcrt4
     ole32
     uuid
-    # Add more as needed, e.g., advapi32 for DPAPI, crypt32
     advapi32
-    crypt32  # For CryptUnprotectData in DPAPI
-    wbemuuid  # For WMI
+    crypt32
+    wbemuuid
 )
 
 # For MinGW cross-compile, ensure static linking if desired
