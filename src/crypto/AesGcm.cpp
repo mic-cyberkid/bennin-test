@@ -17,7 +17,7 @@ AesGcm::AesGcm(const std::vector<BYTE>& key) {
         throw std::runtime_error("Failed to set GCM chaining mode.");
     }
 
-    status = BCryptGenerateSymmetricKey(algHandle_, &keyHandle_, NULL, 0, (PBYTE)key.data(), key.size(), 0);
+    status = BCryptGenerateSymmetricKey(algHandle_, &keyHandle_, NULL, 0, (PBYTE)key.data(), static_cast<ULONG>(key.size()), 0);
     if (!BCRYPT_SUCCESS(status)) {
         BCryptCloseAlgorithmProvider(algHandle_, 0);
         throw std::runtime_error("Failed to generate symmetric key.");
@@ -42,12 +42,12 @@ std::vector<BYTE> AesGcm::encrypt(const std::vector<BYTE>& plaintext, const std:
     BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
     BCRYPT_INIT_AUTH_MODE_INFO(authInfo);
     authInfo.pbNonce = (PBYTE)nonce.data();
-    authInfo.cbNonce = nonce.size();
+    authInfo.cbNonce = static_cast<ULONG>(nonce.size());
     authInfo.pbTag = tag.data();
-    authInfo.cbTag = tag.size();
+    authInfo.cbTag = static_cast<ULONG>(tag.size());
 
     // First call to get the required buffer size
-    status = BCryptEncrypt(keyHandle_, (PBYTE)plaintext.data(), plaintext.size(), &authInfo, NULL, 0, NULL, 0, &ciphertextLen, 0);
+    status = BCryptEncrypt(keyHandle_, (PBYTE)plaintext.data(), static_cast<ULONG>(plaintext.size()), &authInfo, NULL, 0, NULL, 0, &ciphertextLen, 0);
     if (!BCRYPT_SUCCESS(status)) {
         throw std::runtime_error("Failed to get encrypted buffer size.");
     }
@@ -55,7 +55,7 @@ std::vector<BYTE> AesGcm::encrypt(const std::vector<BYTE>& plaintext, const std:
     ciphertext.resize(ciphertextLen);
 
     // Second call to perform encryption
-    status = BCryptEncrypt(keyHandle_, (PBYTE)plaintext.data(), plaintext.size(), &authInfo, NULL, 0, ciphertext.data(), ciphertext.size(), &ciphertextLen, 0);
+    status = BCryptEncrypt(keyHandle_, (PBYTE)plaintext.data(), static_cast<ULONG>(plaintext.size()), &authInfo, NULL, 0, ciphertext.data(), static_cast<ULONG>(ciphertext.size()), &ciphertextLen, 0);
     if (!BCRYPT_SUCCESS(status)) {
         throw std::runtime_error("Encryption failed.");
     }
@@ -81,12 +81,12 @@ std::vector<BYTE> AesGcm::decrypt(const std::vector<BYTE>& ciphertext, const std
     BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
     BCRYPT_INIT_AUTH_MODE_INFO(authInfo);
     authInfo.pbNonce = (PBYTE)nonce.data();
-    authInfo.cbNonce = nonce.size();
+    authInfo.cbNonce = static_cast<ULONG>(nonce.size());
     authInfo.pbTag = tag.data();
-    authInfo.cbTag = tag.size();
+    authInfo.cbTag = static_cast<ULONG>(tag.size());
 
     // First call to get the required buffer size
-    status = BCryptDecrypt(keyHandle_, (PBYTE)encryptedData.data(), encryptedData.size(), &authInfo, NULL, 0, NULL, 0, &plaintextLen, 0);
+    status = BCryptDecrypt(keyHandle_, (PBYTE)encryptedData.data(), static_cast<ULONG>(encryptedData.size()), &authInfo, NULL, 0, NULL, 0, &plaintextLen, 0);
     if (!BCRYPT_SUCCESS(status)) {
         throw std::runtime_error("Failed to get decrypted buffer size.");
     }
@@ -94,7 +94,7 @@ std::vector<BYTE> AesGcm::decrypt(const std::vector<BYTE>& ciphertext, const std
     plaintext.resize(plaintextLen);
 
     // Second call to perform decryption and authentication
-    status = BCryptDecrypt(keyHandle_, (PBYTE)encryptedData.data(), encryptedData.size(), &authInfo, NULL, 0, plaintext.data(), plaintext.size(), &plaintextLen, 0);
+    status = BCryptDecrypt(keyHandle_, (PBYTE)encryptedData.data(), static_cast<ULONG>(encryptedData.size()), &authInfo, NULL, 0, plaintext.data(), static_cast<ULONG>(plaintext.size()), &plaintextLen, 0);
     if (!BCRYPT_SUCCESS(status)) {
         // This can fail if the tag is invalid (authentication failure)
         throw std::runtime_error("Decryption failed. The data may be tampered with.");

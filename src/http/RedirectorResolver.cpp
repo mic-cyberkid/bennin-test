@@ -22,7 +22,7 @@ std::string RedirectorResolver::resolve() {
     urlComp.lpszUrlPath = path;
     urlComp.dwUrlPathLength = sizeof(path) / sizeof(wchar_t);
 
-    if (!WinHttpCrackUrl(wideRedirectorUrl.c_str(), wideRedirectorUrl.length(), 0, &urlComp)) {
+    if (!WinHttpCrackUrl(wideRedirectorUrl.c_str(), static_cast<DWORD>(wideRedirectorUrl.length()), 0, &urlComp)) {
         throw std::runtime_error("Failed to crack redirector URL.");
     }
 

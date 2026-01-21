@@ -87,7 +87,7 @@ std::vector<BYTE> WinHttpClient::post(const std::wstring& server, const std::wst
     }
 
     if (!WinHttpSendRequest(requestHandle, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                            (LPVOID)data.data(), data.size(), data.size(), 0)) {
+                            (LPVOID)data.data(), static_cast<DWORD>(data.size()), static_cast<DWORD>(data.size()), 0)) {
         WinHttpCloseHandle(requestHandle);
         WinHttpCloseHandle(connectHandle);
         throw std::runtime_error("Failed to send request.");
