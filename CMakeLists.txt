@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(windows-implant LANGUAGES CXX)
 
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -14,13 +18,15 @@ enable_language(ASM_MASM)
 FetchContent_Declare(
     json
     URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 FetchContent_MakeAvailable(json)
 
 # googletest
 FetchContent_Declare(
   googletest
-  URL https://github.com/google/googletest/archive/refs/headers/main.zip
+  URL https://github.com/google/googletest/archive/refs/heads/main.zip
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE
 )
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
