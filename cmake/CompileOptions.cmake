@@ -1,16 +1,16 @@
 # Set global compile options
 if(MSVC)
     add_compile_options(
-        /W4              # Warning level 4
-        /WX              # Treat warnings as errors
-        /std:c++20       # C++20 standard
-        /permissive-     # Strict conformance
-        /D_WIN32_WINNT=0x0601 # Target Windows 7 (or later)
-        /Os              # Favor size
-        /GL              # Whole Program Optimization
-        /MT              # Static runtime
-        /GS-             # Disable buffer security check (risky but common for small implants)
-        /EHsc            # Enable exception handling
+        $<$<COMPILE_LANGUAGE:CXX,C>:/W4>              # Warning level 4
+        $<$<COMPILE_LANGUAGE:CXX,C>:/WX>              # Treat warnings as errors
+        $<$<COMPILE_LANGUAGE:CXX,C>:/std:c++20>       # C++20 standard
+        $<$<COMPILE_LANGUAGE:CXX,C>:/permissive->     # Strict conformance
+        $<$<COMPILE_LANGUAGE:CXX,C>:/D_WIN32_WINNT=0x0601> # Target Windows 7 (or later)
+        $<$<COMPILE_LANGUAGE:CXX,C>:/Os>              # Favor size
+        $<$<COMPILE_LANGUAGE:CXX,C>:/GL>              # Whole Program Optimization
+        $<$<COMPILE_LANGUAGE:CXX,C>:/MT>              # Static runtime
+        $<$<COMPILE_LANGUAGE:CXX,C>:/GS->             # Disable buffer security check
+        $<$<COMPILE_LANGUAGE:CXX,C>:/EHsc>            # Enable exception handling
     )
     # Prevent min/max macros
     add_compile_definitions(NOMINMAX)
@@ -22,5 +22,5 @@ if(MSVC)
     )
 else()
     # GCC/Clang
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX,C>:-Wall> $<$<COMPILE_LANGUAGE:CXX,C>:-Wextra> $<$<COMPILE_LANGUAGE:CXX,C>:-Wpedantic> $<$<COMPILE_LANGUAGE:CXX,C>:-Werror>)
 endif()

@@ -4,24 +4,29 @@
 
 TEST(Base64Test, EncodeDecode) {
     std::string original = "Hello, World!";
-    std::string encoded = crypto::Base64::Encode(original);
-    std::string decoded = crypto::Base64::Decode(encoded);
-    EXPECT_EQ(original, decoded);
+    std::vector<BYTE> data(original.begin(), original.end());
+    std::string encoded = crypto::Base64Encode(data);
+    std::vector<BYTE> decoded = crypto::Base64Decode(encoded);
+    std::string decodedStr(decoded.begin(), decoded.end());
+    EXPECT_EQ(original, decodedStr);
 }
 
 TEST(Base64Test, EmptyString) {
     std::string original = "";
-    std::string encoded = crypto::Base64::Encode(original);
-    std::string decoded = crypto::Base64::Decode(encoded);
-    EXPECT_EQ(original, decoded);
+    std::vector<BYTE> data(original.begin(), original.end());
+    std::string encoded = crypto::Base64Encode(data);
+    std::vector<BYTE> decoded = crypto::Base64Decode(encoded);
+    EXPECT_TRUE(decoded.empty());
 }
 
 TEST(Base64Test, Padding) {
-    std::string s1 = "a";
-    std::string s2 = "ab";
-    std::string s3 = "abc";
+    std::vector<std::string> testStrings = {"a", "ab", "abc"};
 
-    EXPECT_EQ(crypto::Base64::Decode(crypto::Base64::Encode(s1)), s1);
-    EXPECT_EQ(crypto::Base64::Decode(crypto::Base64::Encode(s2)), s2);
-    EXPECT_EQ(crypto::Base64::Decode(crypto::Base64::Encode(s3)), s3);
+    for (const auto& s : testStrings) {
+        std::vector<BYTE> data(s.begin(), s.end());
+        std::string encoded = crypto::Base64Encode(data);
+        std::vector<BYTE> decoded = crypto::Base64Decode(encoded);
+        std::string decodedStr(decoded.begin(), decoded.end());
+        EXPECT_EQ(s, decodedStr);
+    }
 }
