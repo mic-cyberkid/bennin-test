@@ -18,7 +18,7 @@ WmiResult::~WmiResult() {
 std::wstring WmiResult::getString(const wchar_t* propName) {
     VARIANT vtProp;
     VariantInit(&vtProp);
-    if (SUCCEEDED(pObj_->Get(propName, 0, &vtProp, 0, 0)) && vtProp.vt == VT_BSTR) {
+    if (SUCCEEDED(pObj_->Get(propName, 0, &vtProp, 0, 0)) && vtProp.vt == VT_BSTR && vtProp.bstrVal != NULL) {
         std::wstring result(vtProp.bstrVal);
         VariantClear(&vtProp);
         return result;

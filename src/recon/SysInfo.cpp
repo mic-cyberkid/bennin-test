@@ -73,7 +73,9 @@ std::string getSysInfo() {
                 BSTR* bstrArray;
                 if (SUCCEEDED(SafeArrayAccessData(sa, (void**)&bstrArray))) {
                     for (ULONG i = 0; i < sa->rgsabound[0].cElements; ++i) {
-                        ips.push_back(ws2s(bstrArray[i]));
+                        if (bstrArray[i] != NULL) {
+                            ips.push_back(ws2s(bstrArray[i]));
+                        }
                     }
                     SafeArrayUnaccessData(sa);
                 }

