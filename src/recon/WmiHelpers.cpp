@@ -12,7 +12,36 @@ WmiResult::WmiResult(IWbemClassObject* obj) : pObj_(obj) {
 WmiResult::~WmiResult() {
     if (pObj_) {
         pObj_->Release();
+        pObj_ = nullptr;
     }
+}
+
+WmiResult::WmiResult(const WmiResult& other) : pObj_(other.pObj_) {
+    if (pObj_) {
+        pObj_->AddRef();
+    }
+}
+
+WmiResult& WmiResult::operator=(const WmiResult& other) {
+    if (this != &other) {
+        if (pObj_) pObj_->Release();
+        pObj_ = other.pObj_;
+        if (pObj_) pObj_->AddRef();
+    }
+    return *this;
+}
+
+WmiResult::WmiResult(WmiResult&& other) noexcept : pObj_(other.pObj_) {
+    other.pObj_ = nullptr;
+}
+
+WmiResult& WmiResult::operator=(WmiResult&& other) noexcept {
+    if (this != &other) {
+        if (pObj_) pObj_->Release();
+        pObj_ = other.pObj_;
+        other.pObj_ = nullptr;
+    }
+    return *this;
 }
 
 std::wstring WmiResult::getString(const wchar_t* propName) {
@@ -30,8 +59,12 @@ std::wstring WmiResult::getString(const wchar_t* propName) {
 int WmiResult::getInt(const wchar_t* propName) {
     VARIANT vtProp;
     VariantInit(&vtProp);
-    if (SUCCEEDED(pObj_->Get(propName, 0, &vtProp, 0, 0)) && (vtProp.vt == VT_I4 || vtProp.vt == VT_UI4)) {
-        int result = vtProp.intVal;
+    if (SUCCEEDED(pObj_->Get(propName, 0, &vtProp, 0, 0))) {
+        int result = 0;
+        if (vtProp.vt == VT_I4) result = vtProp.lVal;
+        else if (vtProp.vt == VT_UI4) result = vtProp.ulVal;
+        else if (vtProp.vt == VT_INT) result = vtProp.intVal;
+        else if (vtProp.vt == VT_UINT) result = vtProp.uintVal;
         VariantClear(&vtProp);
         return result;
     }
@@ -42,8 +75,13 @@ int WmiResult::getInt(const wchar_t* propName) {
 unsigned long long WmiResult::getUnsignedLongLong(const wchar_t* propName) {
     VARIANT vtProp;
     VariantInit(&vtProp);
-    if (SUCCEEDED(pObj_->Get(propName, 0, &vtProp, 0, 0)) && (vtProp.vt == VT_UI8 || vtProp.vt == VT_I8)) {
-        unsigned long long result = vtProp.ullVal;
+    if (SUCCEEDED(pObj_->Get(propName, 0, &vtProp, 0, 0))) {
+        unsigned long long result = 0;
+        if (vtProp.vt == VT_UI8) result = vtProp.ullVal;
+        else if (vtProp.vt == VT_I8) result = vtProp.llVal;
+        else if (vtProp.vt == VT_BSTR && vtProp.bstrVal != NULL) {
+            try { result = std::stoull(vtProp.bstrVal); } catch(...) {}
+        }
         VariantClear(&vtProp);
         return result;
     }
@@ -69,6 +107,7 @@ WmiSession::WmiSession() {
         RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
     if (FAILED(hres)) {
         pSvc_->Release();
+        pSvc_ = nullptr;
         throw std::runtime_error("Failed to set proxy blanket.");
     }
     comSecurityInitialized_ = true;

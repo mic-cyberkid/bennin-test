@@ -68,11 +68,15 @@ std::string getSysInfo() {
         for (auto& net : netResults) {
             VARIANT var;
             VariantInit(&var);
-            if (SUCCEEDED(net.pObj_->Get(L"IPAddress", 0, &var, 0, 0)) && var.vt == (VT_ARRAY | VT_BSTR)) {
+            if (SUCCEEDED(net.getRaw()->Get(L"IPAddress", 0, &var, 0, 0)) && var.vt == (VT_ARRAY | VT_BSTR)) {
                 SAFEARRAY* sa = var.parray;
+                LONG lbound = 0, ubound = 0;
+                SafeArrayGetLBound(sa, 1, &lbound);
+                SafeArrayGetUBound(sa, 1, &ubound);
+                
                 BSTR* bstrArray;
                 if (SUCCEEDED(SafeArrayAccessData(sa, (void**)&bstrArray))) {
-                    for (ULONG i = 0; i < sa->rgsabound[0].cElements; ++i) {
+                    for (LONG i = 0; i <= (ubound - lbound); ++i) {
                         if (bstrArray[i] != NULL) {
                             ips.push_back(ws2s(bstrArray[i]));
                         }
