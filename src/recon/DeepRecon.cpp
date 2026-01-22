@@ -57,11 +57,13 @@ namespace recon {
                     hr = pclsObj->Get(prop.c_str(), 0, &vtProp, 0, 0);
                     if (SUCCEEDED(hr)) {
                         std::wstring key_ws = prop;
-                        std::string key_s(key_ws.begin(), key_ws.end());
+                        std::string key_s;
+                        for(wchar_t wc : key_ws) key_s += (char)wc;
 
                         if (vtProp.vt == VT_BSTR) {
                             std::wstring ws(vtProp.bstrVal);
-                            std::string s(ws.begin(), ws.end());
+                            std::string s;
+                            for(wchar_t wc : ws) s += (char)wc;
                             item[key_s] = s;
                         } else if (vtProp.vt == VT_I4) {
                             item[key_s] = vtProp.lVal;

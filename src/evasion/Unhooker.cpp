@@ -44,7 +44,7 @@ bool Unhooker::RefreshNtdll() {
         if (strcmp((char*)sectionHeader->Name, ".text") == 0) {
             LPVOID pDest = (LPVOID)((BYTE*)hNtdll + sectionHeader->VirtualAddress);
             LPVOID pSrc = (LPVOID)((BYTE*)pMapping + sectionHeader->VirtualAddress);
-            SIZE_SIZE_T size = sectionHeader->Misc.VirtualSize;
+            SIZE_T size = sectionHeader->Misc.VirtualSize;
 
             DWORD oldProtect;
             if (VirtualProtect(pDest, size, PAGE_EXECUTE_READWRITE, &oldProtect)) {

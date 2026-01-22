@@ -1,3 +1,4 @@
+#pragma once
 #include "Task.h"
 #include "../external/concurrentqueue/concurrentqueue.h"
 #include "../network/SocksProxy.h"

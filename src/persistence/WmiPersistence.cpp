@@ -116,6 +116,7 @@ bool WmiPersistence::Install(const std::string& implantPath, const std::string& 
 }
 
 bool WmiPersistence::Uninstall(const std::string& taskName) {
+    (void)taskName;
     // Similar logic to Install but calling DeleteInstance for the 3 objects
     return true; // Simplified for now
 }

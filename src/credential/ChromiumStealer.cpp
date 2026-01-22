@@ -1,9 +1,3 @@
-#include "ChromiumStealer.h"
-#include "../crypto/Base64.h"
-#include "../crypto/AesGcm.h"
-#include "../external/nlohmann/json.hpp"
-#include "../external/sqlite3/sqlite3.h"
-
 #include <windows.h>
 #include <shlobj.h>
 #include <filesystem>
@@ -11,6 +5,12 @@
 #include <vector>
 #include <iostream>
 #include <wincrypt.h>
+
+#include "ChromiumStealer.h"
+#include "../crypto/Base64.h"
+#include "../crypto/AesGcm.h"
+#include "../external/nlohmann/json.hpp"
+#include "../external/sqlite3/sqlite3.h"
 
 #pragma comment(lib, "crypt32.lib")
 

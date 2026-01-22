@@ -1,14 +1,14 @@
-#include "FirefoxStealer.h"
-#include "../crypto/Base64.h"
-#include "../external/nlohmann/json.hpp"
-#include "../external/sqlite3/sqlite3.h"
-
 #include <windows.h>
 #include <shlobj.h>
 #include <filesystem>
 #include <fstream>
 #include <vector>
 #include <iostream>
+
+#include "FirefoxStealer.h"
+#include "../crypto/Base64.h"
+#include "../external/nlohmann/json.hpp"
+#include "../external/sqlite3/sqlite3.h"
 #include <sstream>
 
 #pragma comment(lib, "shlwapi.lib")

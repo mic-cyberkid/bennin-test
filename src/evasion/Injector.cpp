@@ -55,6 +55,7 @@ bool Injector::HollowProcess(const char* targetPath, const std::vector<uint8_t>&
 }
 
 bool Injector::ModuleStomping(DWORD processId, const char* moduleName, const std::vector<uint8_t>& payload) {
+    (void)processId; (void)moduleName; (void)payload;
     // Basic stub for module stomping
     // 1. Open target process
     // 2. Find address of moduleName (e.g., amsi.dll or similar)

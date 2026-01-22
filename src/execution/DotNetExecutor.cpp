@@ -1,7 +1,18 @@
 #include "DotNetExecutor.h"
+#include <mscoree.h>
+#include <metahost.h>
 #include <comutil.h>
 #include <iostream>
 #include <sstream>
+
+#pragma comment(lib, "mscoree.lib")
+
+// Important: Need to import mscorlib for smart pointers
+#import "libid:BED7F4EA-1A96-11D2-8F08-00A0C9A6186D" \
+    rename("SizeOf", "SizeOf_") \
+    rename("ReportEvent", "ReportEvent_")
+
+using namespace mscorlib;
 
 namespace execution {
 
