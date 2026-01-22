@@ -1,6 +1,6 @@
 #include "Decoy.h"
 #include <windows.h>
-#include "utils/Logger.h"
+#include "../utils/Logger.h"
 
 namespace decoy {
 
