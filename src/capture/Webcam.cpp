@@ -19,6 +19,7 @@
 
 using namespace Gdiplus;
 
+namespace capture {
 namespace {
     int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
         UINT num = 0, size = 0;
