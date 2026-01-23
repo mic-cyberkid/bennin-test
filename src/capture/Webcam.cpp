@@ -47,7 +47,7 @@ namespace {
         STDMETHODIMP OnClockSetRate(MFTIME /*hnsSystemTime*/, float /*flRate*/) { return S_OK; }
         STDMETHODIMP OnClockRestart(MFTIME /*hnsSystemTime*/) { return S_OK; }
         STDMETHODIMP OnSetPresentationClock(IMFPresentationClock* /*pPresentationClock*/) { return S_OK; }
-        STDMETHODIMP OnProcessSample(REFGUID guidMajorMediaType, DWORD dwSampleFlags, LONGLONG llSampleTime, LONGLONG llSampleDuration, const BYTE * pSampleBuffer, DWORD dwSampleSize) {
+        STDMETHODIMP OnProcessSample(REFGUID /*guidMajorMediaType*/, DWORD /*dwSampleFlags*/, LONGLONG /*llSampleTime*/, LONGLONG /*llSampleDuration*/, const BYTE * pSampleBuffer, DWORD dwSampleSize) {
             std::lock_guard<std::mutex> lock(mutex_);
             bufferLen_ = dwSampleSize;
             buffer_ = new BYTE[dwSampleSize];
