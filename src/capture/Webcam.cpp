@@ -1,27 +1,77 @@
 #include "Webcam.h"
-#include <string>
 #include "../utils/Logger.h"
-
-// Note: Real VFW or MediaFoundation implementation is verbose.
-// For Phase 4 verification, we will return a stub or error if no camera.
-// To truly port the functionality, we would implement MF here. 
-// Given the constraints and the goal of "faithful functional port", 
-// we will assume for this specific iteration that we are providing the structure 
-// and a stub, as full MF implementation is outside the immediate scope of a 
-// single tool call block without blowing up complexity.
-// 
-// However, I will check if I can add a simple VFW implementation.
-// VFW is deprecated but often still works for basic webcams.
-
-#include <vfw.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfplay.h>
+#include <evr.h>
 #include <gdiplus.h>
-#pragma comment(lib, "vfw32.lib")
-#pragma comment(lib, "gdiplus.lib")
+#include <vector>
+#include <atlbase.h>
+#include <algorithm>
+
+#pragma comment(lib, "mfplat.lib")
+#pragma comment(lib, "mf.lib")
+#pragma comment(lib, "mfuuid.lib")
+#pragma comment(lib, "evr.lib")
 
 using namespace Gdiplus;
 
 namespace capture {
+
 namespace {
+    class SampleGrabberCallback : public IMFSampleGrabberSinkCallback {
+    public:
+        SampleGrabberCallback() : refCount_(1), event_(NULL), buffer_(NULL), bufferLen_(0) {}
+        virtual ~SampleGrabberCallback() {}
+
+        STDMETHODIMP QueryInterface(REFIID iid, void** ppv) {
+            if (iid == IID_IUnknown || iid == __uuidof(IMFSampleGrabberSinkCallback)) {
+                *ppv = static_cast<IMFSampleGrabberSinkCallback*>(this);
+                AddRef();
+                return S_OK;
+            }
+            *ppv = NULL;
+            return E_NOINTERFACE;
+        }
+        STDMETHODIMP_(ULONG) AddRef() { return InterlockedIncrement(&refCount_); }
+        STDMETHODIMP_(ULONG) Release() {
+            ULONG count = InterlockedDecrement(&refCount_);
+            if (count == 0) { delete this; }
+            return count;
+        }
+
+        STDMETHODIMP OnClockStart(MFTIME, DWORD_PTR) { return S_OK; }
+        STDMETHODIMP OnClockStop(MFTIME) { return S_OK; }
+        STDMETHODIMP OnClockPause(MFTIME) { return S_OK; }
+        STDMETHODIMP OnClockResume(MFTIME) { return S_OK; }
+        STDMETHODIMP OnClockSetRate(MFTIME, float) { return S_OK; }
+        STDMETHODIMP OnSetPresentationClock(IMFPresentationClock*) { return S_OK; }
+        STDMETHODIMP OnProcessSample(REFGUID, DWORD, LONGLONG, DWORD, const BYTE* pBuffer, DWORD cbBuffer) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            bufferLen_ = cbBuffer;
+            buffer_ = new BYTE[cbBuffer];
+            memcpy(buffer_, pBuffer, cbBuffer);
+            SetEvent(event_);
+            return S_OK;
+        }
+        STDMETHODIMP OnShutdown() { return S_OK; }
+
+        void WaitForSample(HANDLE event) { event_ = event; }
+        BYTE* GetBuffer(DWORD* len) {
+            *len = bufferLen_;
+            BYTE* buf = buffer_;
+            buffer_ = NULL;
+            return buf;
+        }
+
+    private:
+        ULONG refCount_;
+        HANDLE event_;
+        BYTE* buffer_;
+        DWORD bufferLen_;
+        std::mutex mutex_;
+    };
+
     int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
         UINT num = 0, size = 0;
         GetImageEncodersSize(&num, &size);
@@ -38,88 +88,304 @@ namespace {
         return -1;
     }
 
-    std::vector<BYTE> ConvertBmpToJpeg(const std::string& bmpPath) {
-        std::vector<BYTE> buffer;
+    std::vector<BYTE> ConvertRawToJpeg(BYTE* rawData, UINT width, UINT height, UINT stride) {
+        std::vector<BYTE> jpg;
         GdiplusStartupInput gdiplusStartupInput;
         ULONG_PTR gdiplusToken;
-        if (GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL) != Ok) return {};
+        if (GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL) != Ok) return jpg;
 
-        {
-            std::wstring wPath(bmpPath.begin(), bmpPath.end());
-            Bitmap* bitmap = new Bitmap(wPath.c_str());
-            if (bitmap && bitmap->GetLastStatus() == Ok) {
-                CLSID encoderClsid;
-                if (GetEncoderClsid(L"image/jpeg", &encoderClsid) != -1) {
-                    IStream* pStream = NULL;
-                    if (CreateStreamOnHGlobal(NULL, TRUE, &pStream) == S_OK) {
-                        EncoderParameters encoderParameters;
-                        encoderParameters.Count = 1;
-                        encoderParameters.Parameter[0].Guid = EncoderQuality;
-                        encoderParameters.Parameter[0].Type = EncoderParameterValueTypeLong;
-                        encoderParameters.Parameter[0].NumberOfValues = 1;
-                        ULONG quality = 40;
-                        encoderParameters.Parameter[0].Value = &quality;
+        Bitmap bmp(width, height, stride, PixelFormat32bppRGB, rawData);
 
-                        if (bitmap->Save(pStream, &encoderClsid, &encoderParameters) == Ok) {
-                            LARGE_INTEGER liZero = {};
-                            ULARGE_INTEGER uliSize = {};
-                            pStream->Seek(liZero, STREAM_SEEK_END, &uliSize);
-                            pStream->Seek(liZero, STREAM_SEEK_SET, NULL);
-                            buffer.resize((size_t)uliSize.QuadPart);
-                            ULONG bytesRead = 0;
-                            pStream->Read(buffer.data(), (ULONG)buffer.size(), &bytesRead);
-                        }
-                        pStream->Release();
-                    }
-                }
+        CLSID encoderClsid;
+        if (GetEncoderClsid(L"image/jpeg", &encoderClsid) >= 0) {
+            IStream* pStream = NULL;
+            CreateStreamOnHGlobal(NULL, TRUE, &pStream);
+            EncoderParameters encoderParameters;
+            encoderParameters.Count = 1;
+            encoderParameters.Parameter[0].Guid = EncoderQuality;
+            encoderParameters.Parameter[0].Type = EncoderParameterValueTypeLong;
+            encoderParameters.Parameter[0].NumberOfValues = 1;
+            ULONG quality = 40;
+            encoderParameters.Parameter[0].Value = &quality;
+
+            if (bmp.Save(pStream, &encoderClsid, &encoderParameters) == Ok) {
+                LARGE_INTEGER liZero = {};
+                ULARGE_INTEGER uliSize = {};
+                pStream->Seek(liZero, STREAM_SEEK_END, &uliSize);
+                pStream->Seek(liZero, STREAM_SEEK_SET, NULL);
+                jpg.resize((size_t)uliSize.QuadPart);
+                ULONG bytesRead = 0;
+                pStream->Read(jpg.data(), (ULONG)jpg.size(), &bytesRead);
             }
-            delete bitmap;
+            pStream->Release();
         }
         GdiplusShutdown(gdiplusToken);
-        return buffer;
+        return jpg;
     }
 }
 
-    std::vector<BYTE> CaptureWebcamImage() {
-        // Simplified VFW Capture
-        // 1. Create Capture Window
-        char windowName[] = "CamCap";
-        HWND hWebcam = capCreateCaptureWindowA(windowName, WS_CHILD, 0, 0, 320, 240, GetDesktopWindow(), 0);
-        
-        if (!hWebcam) {
-            LOG_ERR("Failed to create capture window.");
-            return {};
+nlohmann::json ListWebcamDevices() {
+    nlohmann::json result = {{"devices", nlohmann::json::array()}};
+
+    HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
+    if (FAILED(hr)) {
+        result["error"] = "MFStartup failed";
+        return result;
+    }
+
+    IMFAttributes* pAttrs = nullptr;
+    hr = MFCreateAttributes(&pAttrs, 1);
+    if (FAILED(hr)) goto cleanup;
+
+    hr = pAttrs->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                         MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+    if (FAILED(hr)) goto cleanup;
+
+    IMFActivate** ppDevs = nullptr;
+    UINT32 devCount = 0;
+    hr = MFEnumDeviceSources(pAttrs, &ppDevs, &devCount);
+    if (FAILED(hr) || devCount == 0) {
+        result["devices"].push_back({{"index", 0}, {"name", "No devices"}, {"error", "Enumeration failed"}});
+        goto cleanup;
+    }
+
+    for (UINT32 i = 0; i < devCount; ++i) {
+        WCHAR* wszFriendly = nullptr;
+        UINT32 cchFriendly = 0;
+        hr = ppDevs[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &wszFriendly, &cchFriendly);
+
+        std::string name = "Unnamed_" + std::to_string(i);
+        if (SUCCEEDED(hr) && wszFriendly) {
+            int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wszFriendly, -1, nullptr, 0, nullptr, nullptr);
+            name.resize(utf8Len);
+            WideCharToMultiByte(CP_UTF8, 0, wszFriendly, -1, &name[0], utf8Len, nullptr, nullptr);
+            name.pop_back(); // null terminator
+            CoTaskMemFree(wszFriendly);
         }
 
-        std::vector<BYTE> buffer;
+        nlohmann::json caps = nlohmann::json::array();
 
-        // 2. Connect to driver 0
-        if (capDriverConnect(hWebcam, 0)) {
-            Sleep(200); // Allow driver to connect
-            // 3. Grab Frame
-            if (capGrabFrame(hWebcam)) {
-                // 4. Save to temp file (DIB)
-                char tempPath[MAX_PATH];
-                GetTempPathA(MAX_PATH, tempPath);
-                std::string bmpPath = std::string(tempPath) + "cam.bmp";
+        IMFMediaSource* pSrc = nullptr;
+        hr = ppDevs[i]->ActivateObject(IID_PPV_ARGS(&pSrc));
+        if (SUCCEEDED(hr)) {
+            IMFPresentationDescriptor* pPD = nullptr;
+            if (SUCCEEDED(pSrc->CreatePresentationDescriptor(&pPD))) {
+                BOOL fSelected;
+                IMFStreamDescriptor* pSD = nullptr;
+                if (SUCCEEDED(pPD->GetStreamDescriptorByIndex(0, &fSelected, &pSD))) {
+                    IMFMediaTypeHandler* pHandler = nullptr;
+                    if (SUCCEEDED(pSD->GetMediaTypeHandler(&pHandler))) {
+                        DWORD cTypes = 0;
+                        pHandler->GetMediaTypeCount(&cTypes);
+                        for (DWORD t = 0; t < cTypes && t < 20; ++t) {
+                            IMFMediaType* pType = nullptr;
+                            if (SUCCEEDED(pHandler->GetMediaTypeByIndex(t, &pType))) {
+                                UINT32 w = 0, h = 0;
+                                MFGetAttributeSize(pType, MF_MT_FRAME_SIZE, &w, &h);
 
-                if (capFileSaveDIB(hWebcam, bmpPath.c_str())) {
-                    buffer = ConvertBmpToJpeg(bmpPath);
-                    DeleteFileA(bmpPath.c_str());
-                } else {
-                    LOG_ERR("Failed to save DIB from webcam.");
+                                UINT32 num = 0, den = 0;
+                                MFGetAttributeRatio(pType, MF_MT_FRAME_RATE, &num, &den);
+                                float fps = (den != 0) ? static_cast<float>(num) / den : 0.0f;
+
+                                GUID subType{};
+                                pType->GetGUID(MF_MT_SUBTYPE, &subType);
+                                std::string fmt = (subType == MFVideoFormat_MJPG) ? "MJPG" :
+                                                  (subType == MFVideoFormat_YUY2) ? "YUY2" :
+                                                  (subType == MFVideoFormat_NV12) ? "NV12" : "Other";
+
+                                caps.push_back({
+                                    {"width", w},
+                                    {"height", h},
+                                    {"fps", fps},
+                                    {"format", fmt}
+                                });
+
+                                pType->Release();
+                            }
+                        }
+                        pHandler->Release();
+                    }
+                    pSD->Release();
                 }
-            } else {
-                LOG_ERR("Failed to grab frame from webcam.");
+                pPD->Release();
             }
-
-            capDriverDisconnect(hWebcam);
-        } else {
-            LOG_ERR("Failed to connect to webcam driver.");
+            pSrc->Release();
         }
-        
-        DestroyWindow(hWebcam);
-        return buffer;
+
+        result["devices"].push_back({
+            {"index", static_cast<int>(i)},
+            {"name", name},
+            {"capabilities", caps}
+        });
     }
 
+cleanup:
+    if (ppDevs) {
+        for (UINT32 i = 0; i < devCount; ++i) ppDevs[i]->Release();
+        CoTaskMemFree(ppDevs);
+    }
+    if (pAttrs) pAttrs->Release();
+    MFShutdown();
+
+    return result;
 }
+
+std::vector<BYTE> CaptureWebcamJPEG(int deviceIndex, const std::string& nameHint) {
+    std::vector<BYTE> jpg;
+    HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
+    if (FAILED(hr)) {
+        LOG_ERR("MFStartup failed.");
+        return jpg;
+    }
+
+    CComPtr<IMFAttributes> pAttributes;
+    MFCreateAttributes(&pAttributes, 1);
+    pAttributes->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID);
+
+    IMFActivate** ppDevices = NULL;
+    UINT32 deviceCount = 0;
+    hr = MFEnumDeviceSources(pAttributes, &ppDevices, &deviceCount);
+    if (FAILED(hr) || deviceCount == 0) {
+        LOG_ERR("No webcam devices found.");
+        goto cleanup;
+    }
+
+    int selectedIdx = deviceIndex;
+
+    if (!nameHint.empty()) {
+        std::string hintLower = nameHint;
+        std::transform(hintLower.begin(), hintLower.end(), hintLower.begin(), ::tolower);
+
+        for (UINT32 i = 0; i < deviceCount; ++i) {
+            WCHAR* wszName = nullptr;
+            UINT32 cch = 0;
+            if (SUCCEEDED(ppDevices[i]->GetAllocatedString(MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &wszName, &cch))) {
+                std::wstring wname(wszName);
+                int utf8Len = WideCharToMultiByte(CP_UTF8, 0, &wname[0], (int)wname.size(), NULL, 0, NULL, NULL);
+                std::string utf8(utf8Len, 0);
+                WideCharToMultiByte(CP_UTF8, 0, &wname[0], (int)wname.size(), &utf8[0], utf8Len, NULL, NULL);
+                std::string lowerUtf8 = utf8;
+                std::transform(lowerUtf8.begin(), lowerUtf8.end(), lowerUtf8.begin(), ::tolower);
+
+                if (lowerUtf8.find(hintLower) != std::string::npos) {
+                    selectedIdx = static_cast<int>(i);
+                    CoTaskMemFree(wszName);
+                    break;
+                }
+                CoTaskMemFree(wszName);
+            }
+        }
+    }
+
+    if (selectedIdx >= static_cast<int>(deviceCount)) {
+        LOG_ERR("No matching device for hint '" + nameHint + "' or invalid index");
+        goto cleanup;
+    }
+
+    CComPtr<IMFMediaSource> pSource;
+    hr = ppDevices[selectedIdx]->ActivateObject(IID_PPV_ARGS(&pSource));
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFPresentationDescriptor> pPD;
+    hr = pSource->CreatePresentationDescriptor(&pPD);
+    if (FAILED(hr)) goto cleanup;
+
+    BOOL fSelected;
+    CComPtr<IMFStreamDescriptor> pSD;
+    hr = pPD->GetStreamDescriptorByIndex(0, &fSelected, &pSD);
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFMediaTypeHandler> pHandler;
+    hr = pSD->GetMediaTypeHandler(&pHandler);
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFMediaType> pType;
+    hr = MFCreateMediaType(&pType);
+    pType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+    pType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_MJPG);
+    pType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+    MFSetAttributeSize(pType, MF_MT_FRAME_SIZE, 320, 240);
+    MFSetAttributeRatio(pType, MF_MT_FRAME_RATE, 30, 1);
+    MFSetAttributeRatio(pType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+    hr = pHandler->SetCurrentMediaType(pType);
+    if (FAILED(hr)) {
+        pType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+        hr = pHandler->SetCurrentMediaType(pType);
+        if (FAILED(hr)) goto cleanup;
+    }
+
+    hr = pPD->SelectStream(0);
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFActivate> pGrabberAct;
+    SampleGrabberCallback* pCallback = new SampleGrabberCallback();
+    hr = MFCreateSampleGrabberSinkActivate(pType, pCallback, &pGrabberAct);
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFMediaSink> pSink;
+    hr = pGrabberAct->ActivateObject(IID_PPV_ARGS(&pSink));
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFTopology> pTopology;
+    hr = MFCreateTopology(&pTopology);
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFTopologyNode> pSourceNode;
+    hr = MFCreateTopologyNode(MF_TOPOLOGY_SOURCESTREAM_NODE, &pSourceNode);
+    pSourceNode->SetUnknown(MF_TOPONODE_SOURCE, pSource);
+    pSourceNode->SetUnknown(MF_TOPONODE_PRESENTATION_DESCRIPTOR, pPD);
+    pSourceNode->SetUnknown(MF_TOPONODE_STREAM_DESCRIPTOR, pSD);
+    pTopology->AddNode(pSourceNode);
+
+    CComPtr<IMFTopologyNode> pSinkNode;
+    hr = MFCreateTopologyNode(MF_TOPOLOGY_OUTPUT_NODE, &pSinkNode);
+    pSinkNode->SetObject(pSink);
+    pTopology->AddNode(pSinkNode);
+
+    hr = pSourceNode->ConnectOutput(0, pSinkNode, 0);
+    if (FAILED(hr)) goto cleanup;
+
+    CComPtr<IMFMediaSession> pSession;
+    hr = MFCreateMediaSession(NULL, &pSession);
+    if (FAILED(hr)) goto cleanup;
+
+    hr = pSession->SetTopology(0, pTopology);
+    if (FAILED(hr)) goto cleanup;
+
+    PROPVARIANT varStart;
+    PropVariantInit(&varStart);
+    hr = pSession->Start(&GUID_NULL, &varStart);
+    if (FAILED(hr)) goto cleanup;
+
+    HANDLE hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    pCallback->WaitForSample(hEvent);
+    DWORD wait = WaitForSingleObject(hEvent, 2000);
+    if (wait == WAIT_OBJECT_0) {
+        DWORD len = 0;
+        BYTE* raw = pCallback->GetBuffer(&len);
+        if (raw) {
+            GUID subtype;
+            pType->GetGUID(MF_MT_SUBTYPE, &subtype);
+            if (subtype == MFVideoFormat_MJPG) {
+                jpg.assign(raw, raw + len);
+            } else {
+                UINT32 w, h;
+                MFGetAttributeSize(pType, MF_MT_FRAME_SIZE, &w, &h);
+                UINT32 stride = w * 4;
+                jpg = ConvertRawToJpeg(raw, w, h, stride);
+            }
+            delete[] raw;
+        }
+    }
+
+    pSession->Stop();
+    pSession->Close();
+
+cleanup:
+    for (UINT32 i = 0; i < deviceCount; i++) ppDevices[i]->Release();
+    CoTaskMemFree(ppDevices);
+    MFShutdown();
+    return jpg;
+}
+
+} // namespace capture

