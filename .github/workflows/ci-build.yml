@@ -27,7 +27,7 @@ jobs:
           ${{ runner.os }}-deps-
 
     - name: Configure CMake
-      run: cmake -B ${{ github.workspace }}/build -S ${{ github.workspace }} -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+      run: cmake -B ${{github.workspace}}/build -S ${{github.workspace}} -DCMAKE_BUILD_TYPE=${{matrix.build_type}}
 
     - name: Build All
       run: cmake --build ${{github.workspace}}/build --config ${{matrix.build_type}}
