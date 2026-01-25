@@ -90,10 +90,14 @@ namespace {
     }
 
     std::vector<BYTE> ConvertRawToJpeg(BYTE* rawData, UINT width, UINT height, UINT stride) {
+        LOG_DEBUG("Attempting to convert raw image to JPEG...");
         std::vector<BYTE> jpg;
         GdiplusStartupInput gdiplusStartupInput;
         ULONG_PTR gdiplusToken;
-        if (GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL) != Ok) return jpg;
+        if (GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL) != Ok) {
+            LOG_ERR("GdiplusStartup failed.");
+            return jpg;
+        }
 
         Bitmap bmp(width, height, stride, PixelFormat32bppRGB, rawData);
 
@@ -411,6 +415,7 @@ std::vector<BYTE> CaptureWebcamJPEG(int deviceIndex, const std::string& nameHint
                         if (subtype == MFVideoFormat_MJPG) {
                             jpg.assign(raw, raw + len);
                         } else {
+                            LOG_DEBUG("Captured non-JPEG frame. Converting...");
                             UINT32 w, h;
                             MFGetAttributeSize(pType, MF_MT_FRAME_SIZE, &w, &h);
                             UINT32 stride = w * 4;
