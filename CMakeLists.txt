@@ -14,11 +14,6 @@ include(FetchContent)
 
 enable_language(ASM_MASM)
 
-# Add build optimizations for Release configuration
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(main PRIVATE /O2 /Ob2 /GL /GS- /guard:cf- /favor:ATOM /arch:AVX2)
-endif()
-
 # nlohmann-json
 FetchContent_Declare(
     json
@@ -84,6 +79,11 @@ target_link_libraries(main
     nlohmann_json::nlohmann_json
     bcrypt winhttp advapi32 ole32 wbemuuid crypt32 shlwapi gdiplus vfw32 winmm user32 iphlpapi ws2_32 mscoree dbghelp wlanapi ntdll netapi32 psapi
 )
+
+# Add build optimizations for Release configuration
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(main PRIVATE /O2 /Ob2 /GL /GS- /guard:cf- /favor:ATOM /arch:AVX2)
+endif()
 
 # Tests
 add_executable(unit_tests
