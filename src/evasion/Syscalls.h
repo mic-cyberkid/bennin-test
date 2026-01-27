@@ -31,6 +31,9 @@ private:
     PVOID m_syscallGadget = nullptr;
 };
 
+unsigned long djb2Hash(const char* str);
+FARPROC getProcByHash(HMODULE hModule, unsigned long targetHash);
+
 } // namespace evasion
 
 // Helper for calling syscalls (requires assembly or gadget jump)
@@ -56,8 +59,6 @@ extern "C" NTSTATUS NtSetValueKey(
     IN ULONG DataSize
 );
 
-unsigned long djb2Hash(const char* str);
-FARPROC getProcByHash(HMODULE hModule, unsigned long targetHash);
 
 extern "C" NTSTATUS NtClose(
     IN HANDLE Handle
