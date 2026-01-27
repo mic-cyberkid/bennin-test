@@ -48,6 +48,13 @@ namespace Lateral {
         VARIANT varCmd;
         varCmd.vt = VT_BSTR;
         varCmd.bstrVal = SysAllocString(cmd.c_str());
+        if (!varCmd.bstrVal) {
+            pInParams->Release();
+            pClass->Release();
+            pSvc->Release();
+            pLoc->Release();
+            return false;
+        }
         pInParams->Put(L"CommandLine", 0, &varCmd, 0);
 
         IWbemClassObject* pOutParams = NULL;
