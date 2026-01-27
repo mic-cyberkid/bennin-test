@@ -3,7 +3,6 @@
 #include <map>
 #include <string>
 #include <vector>
-#include <winternl.h>
 
 namespace evasion {
 
@@ -11,7 +10,6 @@ struct SyscallStub {
     DWORD ssn;
     PVOID address;
 };
-
 
 class SyscallResolver {
 public:
@@ -31,37 +29,7 @@ private:
     PVOID m_syscallGadget = nullptr;
 };
 
-unsigned long djb2Hash(const char* str);
-FARPROC getProcByHash(HMODULE hModule, unsigned long targetHash);
-
 } // namespace evasion
 
 // Helper for calling syscalls (requires assembly or gadget jump)
 extern "C" NTSTATUS InternalDoSyscall(DWORD ssn, ...);
-
-// Syscall prototypes
-extern "C" NTSTATUS NtCreateKey(
-    OUT PHANDLE KeyHandle,
-    IN ACCESS_MASK DesiredAccess,
-    IN POBJECT_ATTRIBUTES ObjectAttributes,
-    IN ULONG TitleIndex,
-    IN PUNICODE_STRING Class,
-    IN ULONG CreateOptions,
-    OUT PULONG Disposition
-);
-
-extern "C" NTSTATUS NtSetValueKey(
-    IN HANDLE KeyHandle,
-    IN PUNICODE_STRING ValueName,
-    IN ULONG TitleIndex,
-    IN ULONG Type,
-    IN PVOID Data,
-    IN ULONG DataSize
-);
-
-unsigned long djb2Hash(const char* str);
-FARPROC getProcByHash(HMODULE hModule, unsigned long targetHash);
-
-extern "C" NTSTATUS NtClose(
-    IN HANDLE Handle
-);

