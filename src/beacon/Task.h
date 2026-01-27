@@ -28,6 +28,10 @@ enum class TaskType {
     SOCKS_PROXY,
     ADV_PERSISTENCE,
     DUMP_LSASS,
+    GET_LOGS,
+    LATERAL_WMI,
+    WIFI_LATERAL,
+    BT_LATERAL,
     UNKNOWN // For tasks that don't map to a known type
 };
 
