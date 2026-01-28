@@ -2,6 +2,7 @@
 #include "../recon/WmiHelpers.h"
 #include "../evasion/AntiSandbox.h"
 #include "../utils/Obfuscator.h"
+#include "../utils/Shared.h"
 #include <thread>
 #include <chrono>
 #include <cstdio>
@@ -10,13 +11,7 @@
 namespace lateral {
 
 namespace {
-    std::wstring s2ws(const std::string& str) {
-        if (str.empty()) return std::wstring();
-        int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
-        std::wstring strTo(size_needed, 0);
-        MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &strTo[0], size_needed);
-        return strTo;
-    }
+    using utils::s2ws;
 }
 
 std::string WmiExec(const std::string& target, const std::string& user, const std::string& pass, const std::string& cmd) {
