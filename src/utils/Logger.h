@@ -19,9 +19,14 @@ public:
     static void Info(const std::string& message) { Log(LogLevel::INFO, message); }
     static void Warn(const std::string& message) { Log(LogLevel::WARN, message); }
     static void Error(const std::string& message) { Log(LogLevel::ERR, message); }
+    static std::string GetRecentLogs(int max_lines);
+
+#include <deque>
 
 private:
     static std::mutex logMutex_;
+    static std::deque<std::string> logBuffer_;
+    static const size_t MAX_LOG_LINES;
 };
 
 } // namespace utils

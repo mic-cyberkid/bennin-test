@@ -17,6 +17,8 @@
 #include "../credential/LsassDumper.h"
 #include "../fs/FileSystem.h"
 #include "../recon/DeepRecon.h"
+#include "../modules/Lateral.h"
+#include "../lateral/BluetoothLateral.h"
 #include "../crypto/Base64.h"
 #include "../utils/Logger.h"
 #include <stdexcept>
