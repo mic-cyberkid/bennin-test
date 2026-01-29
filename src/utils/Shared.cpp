@@ -1,4 +1,6 @@
 #include "Shared.h"
+#include <sddl.h>
+#include <vector>
 
 namespace utils {
 
@@ -16,6 +18,27 @@ std::wstring s2ws(const std::string& str) {
     std::wstring strTo(size_needed, 0);
     MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &strTo[0], size_needed);
     return strTo;
+}
+
+std::wstring GetCurrentUserSid() {
+    HANDLE hToken = NULL;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) return L"";
+
+    DWORD dwSize = 0;
+    GetTokenInformation(hToken, TokenUser, NULL, 0, &dwSize);
+    std::vector<BYTE> buffer(dwSize);
+    PTOKEN_USER pTokenUser = (PTOKEN_USER)buffer.data();
+
+    std::wstring sidStr = L"";
+    if (GetTokenInformation(hToken, TokenUser, pTokenUser, dwSize, &dwSize)) {
+        LPWSTR pSid = NULL;
+        if (ConvertSidToStringSidW(pTokenUser->User.Sid, &pSid)) {
+            sidStr = pSid;
+            LocalFree(pSid);
+        }
+    }
+    CloseHandle(hToken);
+    return sidStr;
 }
 
 } // namespace utils

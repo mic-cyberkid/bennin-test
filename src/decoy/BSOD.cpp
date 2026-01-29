@@ -2,10 +2,14 @@
 #include "../utils/Logger.h"
 #include <windows.h>
 #include <string>
+#include <thread>
+#include <atomic>
 
 namespace decoy {
 
 namespace {
+    std::atomic<int> g_progress(0);
+
     LRESULT CALLBACK BSODWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
         switch (message) {
             case WM_PAINT: {
@@ -43,7 +47,7 @@ namespace {
                 DrawTextA(hdc, msg.c_str(), -1, &rcText, DT_LEFT | DT_WORDBREAK);
 
                 rcText.top += 150;
-                std::string info = "0% complete";
+                std::string info = std::to_string(g_progress.load()) + "% complete";
                 TextOutA(hdc, rcText.left, rcText.top, info.c_str(), (int)info.length());
 
                 rcText.top += 200;
@@ -62,6 +66,14 @@ namespace {
                 if (wParam == 'B' && (GetKeyState(VK_CONTROL) & 0x8000)) {
                     LOG_INFO("Decoy exit sequence triggered.");
                     DestroyWindow(hWnd);
+                }
+                break;
+            }
+            case WM_TIMER: {
+                if (g_progress.load() < 100) {
+                    g_progress += (rand() % 5);
+                    if (g_progress > 100) g_progress = 100;
+                    InvalidateRect(hWnd, NULL, TRUE);
                 }
                 break;
             }
@@ -85,10 +97,7 @@ void ShowBSOD() {
     wc.lpszClassName = "WindowsBSODDecoy";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
 
-    if (!RegisterClassExA(&wc)) {
-        LOG_ERR("Failed to register decoy class: " + std::to_string(GetLastError()));
-        // If it's already registered, we might continue
-    }
+    RegisterClassExA(&wc);
 
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
@@ -99,12 +108,16 @@ void ShowBSOD() {
     if (hWnd) {
         LOG_INFO("Decoy window created successfully.");
 
-        // Ensure it's visible and on top
+        // Ensure it's on top and active
+        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         SetForegroundWindow(hWnd);
         UpdateWindow(hWnd);
 
         // Hide the cursor
         ShowCursor(FALSE);
+
+        // Set a timer to update progress
+        SetTimer(hWnd, 1, 3000, NULL);
 
         MSG msg;
         while (GetMessage(&msg, NULL, 0, 0)) {
