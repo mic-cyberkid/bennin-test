@@ -5,7 +5,9 @@ namespace evasion {
 
 bool IsLikelySandbox() {
     // 1. Very low memory (most sandboxes < 4 GB)
-    MEMORYSTATUSEX mem = { sizeof(mem) };
+    MEMORYSTATUSEX mem;
+    RtlZeroMemory(&mem, sizeof(mem));
+    mem.dwLength = sizeof(mem);
     if (GlobalMemoryStatusEx(&mem) && mem.ullTotalPhys < 0x100000000ULL) // < 4GB
         return true;
 

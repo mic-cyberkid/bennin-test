@@ -1,8 +1,17 @@
 #include "Shared.h"
 #include <sddl.h>
 #include <vector>
+#include <cstdio>
 
 namespace utils {
+
+namespace Shared {
+    std::string ToHex(unsigned int value) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%08X", value);
+        return std::string(buf);
+    }
+}
 
 std::string ws2s(const std::wstring& wstr) {
     if (wstr.empty()) return std::string();

