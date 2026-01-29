@@ -30,6 +30,7 @@ enum class TaskType {
     DUMP_LSASS,
     LATERAL_RCE,
     LATERAL_WIRELESS,
+    GET_LOGS,
     UNKNOWN // For tasks that don't map to a known type
 };
 

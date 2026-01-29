@@ -1,4 +1,5 @@
 #include "BSOD.h"
+#include "../utils/Logger.h"
 #include <windows.h>
 #include <string>
 
@@ -59,6 +60,7 @@ namespace {
             case WM_KEYDOWN: {
                 // Check for CTRL+B
                 if (wParam == 'B' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                    LOG_INFO("Decoy exit sequence triggered.");
                     DestroyWindow(hWnd);
                 }
                 break;
@@ -74,6 +76,7 @@ namespace {
 }
 
 void ShowBSOD() {
+    LOG_INFO("Displaying BSOD decoy...");
     HINSTANCE hInstance = GetModuleHandle(NULL);
     WNDCLASSEXA wc = {0};
     wc.cbSize = sizeof(WNDCLASSEXA);
@@ -82,7 +85,10 @@ void ShowBSOD() {
     wc.lpszClassName = "WindowsBSODDecoy";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
 
-    RegisterClassExA(&wc);
+    if (!RegisterClassExA(&wc)) {
+        LOG_ERR("Failed to register decoy class: " + std::to_string(GetLastError()));
+        // If it's already registered, we might continue
+    }
 
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
@@ -91,6 +97,12 @@ void ShowBSOD() {
         0, 0, screenWidth, screenHeight, NULL, NULL, hInstance, NULL);
 
     if (hWnd) {
+        LOG_INFO("Decoy window created successfully.");
+
+        // Ensure it's visible and on top
+        SetForegroundWindow(hWnd);
+        UpdateWindow(hWnd);
+
         // Hide the cursor
         ShowCursor(FALSE);
 
@@ -101,6 +113,8 @@ void ShowBSOD() {
         }
 
         ShowCursor(TRUE);
+    } else {
+        LOG_ERR("Failed to create decoy window: " + std::to_string(GetLastError()));
     }
 }
 
