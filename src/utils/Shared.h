@@ -9,5 +9,6 @@ namespace utils {
 
     namespace Shared {
         std::string ToHex(unsigned int value);
+        NTSTATUS NtCreateKeyRelative(HANDLE hRoot, const std::wstring& relativePath, PHANDLE hTarget);
     }
 }

