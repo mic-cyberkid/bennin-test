@@ -14,6 +14,7 @@ public:
 
     std::vector<BYTE> encrypt(const std::vector<BYTE>& plaintext, const std::vector<BYTE>& nonce);
     std::vector<BYTE> decrypt(const std::vector<BYTE>& ciphertext, const std::vector<BYTE>& nonce);
+    std::vector<BYTE> decrypt(const std::vector<BYTE>& ciphertext, const std::vector<BYTE>& nonce, const std::vector<BYTE>& tag);
 
 private:
     BCRYPT_ALG_HANDLE algHandle_ = nullptr;
