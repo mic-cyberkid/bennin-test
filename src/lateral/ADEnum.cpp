@@ -120,7 +120,6 @@ std::string ADEnum::EnumerateDomainAdmins() {
     // For now use hardcoded "Domain Admins".
 
     LPCWSTR groupName = L"Domain Admins";
-    LPLOCALGROUP_MEMBERS_INFO_1 pBuff = NULL;
     DWORD entriesRead = 0;
     DWORD totalEntries = 0;
     DWORD_PTR resumeHandle = 0;
