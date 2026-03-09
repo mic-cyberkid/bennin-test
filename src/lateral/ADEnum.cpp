@@ -59,7 +59,7 @@ std::string ADEnum::EnumerateComputers() {
         if (res == ERROR_SUCCESS || res == ERROR_MORE_DATA) {
             PNET_DISPLAY_MACHINE p = pBuff;
             for (DWORD i = 0; i < count; i++) {
-                ss << utils::ws2s(p->usrim2_name) << " | " << utils::ws2s(p->usrim2_comment) << "\n";
+                ss << utils::ws2s(p->usri2_name) << " | " << utils::ws2s(p->usri2_comment) << "\n";
                 p++;
             }
             NetApiBufferFree(pBuff);
@@ -80,7 +80,7 @@ std::string ADEnum::EnumerateUsers() {
         if (res == ERROR_SUCCESS || res == ERROR_MORE_DATA) {
             PNET_DISPLAY_USER p = pBuff;
             for (DWORD i = 0; i < count; i++) {
-                ss << utils::ws2s(p->usrim1_name) << " | " << utils::ws2s(p->usrim1_full_name) << "\n";
+                ss << utils::ws2s(p->usri1_name) << " | " << utils::ws2s(p->usri1_full_name) << "\n";
                 p++;
             }
             NetApiBufferFree(pBuff);
